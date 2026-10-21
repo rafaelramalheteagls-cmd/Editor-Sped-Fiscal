@@ -1,0 +1,8 @@
+{
+  "name": "SPED Fiscal Editor Pro",
+  "description": "Editor e analisador web profissional de arquivos SPED EFD ICMS/IPI e CT-e XML com validação PVA, análise de CFOP, dashboard fiscal e exportação",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

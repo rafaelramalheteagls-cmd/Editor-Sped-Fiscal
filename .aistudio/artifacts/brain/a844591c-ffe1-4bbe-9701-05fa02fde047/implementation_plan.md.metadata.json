@@ -1,0 +1,6 @@
+{
+  "summary": "Plano de implementação para suporte completo a alternância de Tema Claro e Tema Escuro (Light/Dark Mode) no SPED Fiscal Editor Pro com persistência no localStorage, botão toggle na barra de navegação superior, paleta refinada para alta densidade contábil e suporte a todas as abas e modais.",
+  "updatedAt": "2026-10-19T20:31:13.027843205Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

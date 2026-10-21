@@ -1,0 +1,7 @@
+services:
+  sped-fiscal-app:
+    build: .
+    container_name: sped-fiscal-editor
+    restart: unless-stopped
+    ports:
+      - "3000:80"
