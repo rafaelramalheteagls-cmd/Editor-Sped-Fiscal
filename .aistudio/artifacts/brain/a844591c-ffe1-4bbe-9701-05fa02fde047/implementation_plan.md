@@ -1,109 +1,145 @@
-# Suporte a Tema Claro / Escuro (Light & Dark Mode) no SPED Fiscal Editor Pro
+# Incorporação das Regras Oficiais do PVA SPED Fiscal no Validador
 
-Adiciona a funcionalidade completa de alternância entre **Tema Escuro** (Dark Mode) e **Tema Claro** (Light Mode) na aplicação, com botão de controle direto na barra de navegação superior (Navbar) e persistência automática no armazenamento local (`localStorage`), mantendo o tema escuro como padrão inicial conforme definido pelo usuário.
+Moderniza o motor de validação do SPED Fiscal Editor Pro com a inteligência oficial extraída do descritor do PVA (Ato 020 / Estrutura 001 v2). O sistema passará a auditar a escrituração com as mesmas fórmulas matemáticas, cruzamentos inter-registros e mensagens do validador da Receita Federal, focando inicialmente nas apurações tributárias dos Blocos E e C e nas consistências produtivas do Bloco K.
 
 ## Decisões Confirmadas com o Usuário
 
 > [!IMPORTANT]
-> - **Tema Padrão**: Tema Escuro (`dark`) como padrão inicial na primeira visita.
-> - **Persistência**: Lembrar a última escolha feita pelo usuário via `localStorage` (chave `sped_theme_preference`).
-> - **Posicionamento**: Botão com ícones intuitivos (Sol / Lua) posicionado diretamente na barra de navegação superior junto às ações principais.
+> - **Integração Nativa**: As regras e consultas do PVA serão incorporadas diretamente no validador em TypeScript da aplicação, garantindo validação ultrarrápida no navegador (client-side) sem necessidade de banco de dados externo ou latência de rede.
+> - **Escopo Priorizado**:
+>   1. **Bloco E & Bloco C**: Somatórios da apuração de ICMS (E110/E111/E116), cruzamento analítico de notas fiscais (C100 vs C190 vs C170) e batimento de ajustes de documento (C197/C597/D197) com a apuração.
+>   2. **Bloco K**: Consistência de datas de estoque (K200 vs K100), tipos válidos de insumo/produto (0200 vs K), segregação de produto resultante vs insumo consumido (K230 vs K235 e K250 vs K255) e posse de terceiros.
+> - **Apresentação de Inconsistências**: Exibição destacada do identificador oficial da regra do PVA (ex: `REGRA_VL_TOT_DEBITOS_E110_17002_V1`) acompanhado da fundamentação oficial do PVA e de um card de orientação prática de retificação.
 
 ---
 
 ## 1. Visão Geral & Conceito
 
-- **O que faz**: Permite que o analista fiscal e auditor contábil alterne entre o modo escuro (ideal para ambientes de baixa luminosidade e longas jornadas de auditoria em telas OLED/LED) e o modo claro (ideal para conferência diária, impressão e ambientes corporativos iluminados).
-- **Público-Alvo**: Contadores, analistas fiscais, auditores e operadores de ERP que manipulam arquivos SPED EFD ICMS/IPI e CT-e por muitas horas seguidas.
-- **Valor Principal**: Conforto visual ergonômico, redução da fadiga ocular e consistência visual rigorosa com alta densidade de dados tabulares em ambos os modos.
+- **O que faz**: Eleva a precisão do validador do aplicativo ao nível oficial do PVA da Receita Federal/SEFAZ. Arquivos validados aqui terão garantia prévia de aprovação no PVA, eliminando surpresas na transmissão.
+- **Público-Alvo**: Contadores, analistas fiscais, auditores tributários e desenvolvedores de integração contábil.
+- **Valor Principal**: Diagnóstico antecipado com identificação do código exato da regra que o PVA dispararia, permitindo ao usuário navegar diretamente à linha do erro e compreender como corrigir a divergência.
 
 ---
 
 ## 2. Experiência do Usuário & Design Visual
 
 ### Fluxos Principais
-1. **Primeiro Acesso**: A aplicação carrega no tema Escuro padrão (`slate-900 / slate-950`).
-2. **Alternância Instantânea**: Ao clicar no botão de tema na barra superior (ícone de Sol no modo escuro / Lua no modo claro):
-   - A classe `.dark` é adicionada ou removida de `document.documentElement` (`<html>`).
-   - A preferência é salva no `localStorage`.
-   - O feedback visual ocorre em tempo real sem recarregar a página e sem perda de dados fiscais ou da pilha de Desfazer/Refazer.
-3. **Persistência ao Recarregar**: Ao recarregar ou reabrir o navegador, a preferência anterior é restaurada imediatamente.
+1. **Auditoria com Regras PVA**: Ao carregar um arquivo SPED ou clicar em "Revalidar Arquivo", o motor executa as regras estruturais e de somatórios oficiais do PVA.
+2. **Visualização Enriquecida da Inconsistência**:
+   - Cada linha de inconsistência passa a exibir o identificador técnico oficial (ex: `REGRA_VL_TOT_DEBITOS_E110`) como um rótulo mono discreto.
+   - Um botão expansível ou tooltip de ajuda mostra a "Orientação de Correção PVA" (ex: fórmula matemática esperada, diferença apurada em R$ e registros envolvidos).
+3. **Filtro Rápido por Regra PVA**:
+   - O campo de busca da aba de validação permite digitar diretamente o nome da regra (ex: `K235`, `E110`, `C190`) para isolar todas as divergências daquele teste específico.
+4. **Navegação Direta e Autocorreção**:
+   - Mantém atalhos de navegação para a linha exata no editor tabular e preserva os botões de autocorreção rápida onde aplicável.
 
-### Paleta de Cores e Tokens
-- **Tema Escuro (Dark Mode)**:
-  - Fundo principal: `slate-950` / `slate-900`
-  - Superfícies e Cards: `slate-900` / `slate-800` com bordas sutis `slate-800` / `slate-700`
-  - Texto primário: `slate-100` / `white`
-  - Texto secundário/metadados: `slate-400`
-  - Tabelas e grelhas: Zebrado sutil `slate-800/50` e `slate-900`
-  - Destaques funcionais: `emerald-500` (ações primárias e validações aprovadas), `blue-400` (CT-e e relatórios), `amber-400` (advertências), `rose-400` (erros fiscais)
-- **Tema Claro (Light Mode)**:
-  - Fundo principal: `slate-100` / `slate-50`
-  - Superfícies e Cards: `white` com bordas sutis `slate-200`
-  - Texto primário: `slate-900` / `slate-800`
-  - Texto secundário/metadados: `slate-500`
-  - Tabelas e grelhas: Zebrado sutil `white` e `slate-50` com linhas divisórias nítidas
-  - Destaques funcionais: `emerald-600`, `blue-600`, `amber-600`, `red-600`
-- **Barra de Navegação**:
-  - Ajustada com elegância para contrastar perfeitamente em ambos os modos, mantendo o botão de tema bem visível e com tooltips informativos ("Alternar para Tema Claro" / "Alternar para Tema Escuro").
+### Disciplina Visual (Anti-Slop & Tipografia)
+- Identificador da regra (`pvaRuleId`) em fonte mono limpa (`font-mono text-xs`), sem badges pill espalhafatosos, alinhado à esquerda na descrição da inconsistência.
+- Separação sutil de blocos e valores calculados vs valores informados com formatação em moeda BRL (`R$ 1.250,00`).
+- Destaque em tipografia técnica para campos fiscais envolvidos (`VL_TOT_DEBITOS`, `CFOP`, `CST_ICMS`).
 
 ---
 
 ## 3. Principais Decisões de Produto & Arquitetura
 
-- **Gerenciamento Centralizado de Tema (React Context ou Hook `useTheme`)**:
-  - *Abordagem*: Criar um contexto/hook `useTheme` fornecendo `theme: 'dark' | 'light'` e `toggleTheme()`.
-  - *Por que*: Permite que qualquer componente (Navbar, abas de relatórios, gráficos, modais) reaja ou consulte o tema atual quando necessário sem acoplamentos rígidos.
-- **Configuração no Tailwind CSS v4**:
-  - *Abordagem*: Declarar `@custom-variant dark (&:where(.dark, .dark *));` no `src/index.css`.
-  - *Por que*: O Tailwind CSS v4 suporta a diretiva `@custom-variant dark` para permitir alternância baseada na classe `.dark` no elemento raiz (`<html class="dark">`).
-- **Compatibilidade Completa com Modais e Relatórios**:
-  - Garantir que todos os modais (Reconciliação ICMS/CST, Importação CT-e, Inventário Bloco H, Relatório PDF) e todas as abas (Dashboard, Editor de Registros, Análise CFOP, Validação Fiscal, Busca Global) possuam classes responsivas de tema (`bg-white dark:bg-slate-900`, `text-slate-800 dark:text-slate-100`, `border-slate-200 dark:border-slate-800`).
+### A. Mapeamento das Queries SQL do PVA em Algoritmos TypeScript
+- *Decisão*: Como o PVA executa queries SQL internas sobre tabelas relacionais (`reg_c100`, `reg_e110`, etc.), traduziremos a semântica dessas queries SQL fornecidas no JSON em agregações eficientes em memória na árvore de linhas do SPED.
+- *Benefício*: Execução instantânea (em menos de 100ms para arquivos de 50.000 linhas) diretamente no browser sem criar dependência de WebAssembly SQLite ou requisições lentas a servidor.
+
+### B. Catálogo Unificado de Metadados de Regras PVA
+- *Decisão*: Criar uma base de dados de regras (`pvaRulesCatalog.ts`) contendo ID da regra, registro-alvo, severidade padrão, mensagem oficial e instruções de correção.
+- *Benefício*: Permite reuso em múltiplos validadores, documentação contextual no frontend e fácil manutenção para futuras atualizações de leiaute.
+
+### C. Regras Priorizadas de Apuração (Bloco E & C)
+1. **`REGRA_VL_TOT_DEBITOS_E110_17002_V1`**:
+   - Valida se `VL_TOT_DEBITOS` do registro `E110` é igual à soma do `VL_ICMS` dos registros analíticos (`C190`, `C320`, `C390`, `C490`, `C590`, `C690`, `C790`, `C890`, `D190`, `D300`, `D390`, `D410`, `D590`, `D690`, `D696`, `D730`, `D760`) para CFOPs de saída iniciados por 5, 6, 7 e CFOP 1605 (excluindo 5605).
+2. **`REGRA_VL_TOT_CREDITOS_E110_17002_V1`**:
+   - Valida se `VL_TOT_CREDITOS` do registro `E110` é igual à soma do `VL_ICMS` dos registros analíticos (`C190`, `C590`, `D190`, `D590`, `D730`) para CFOPs de entrada iniciados por 1 (exceto 1605), 2, 3 e CFOP 5605.
+3. **`REGRA_SLD_DEVEDOR_E110` e `REGRA_SLD_CREDOR_E110`**:
+   - Cálculo estrito: `(VL_TOT_DEBITOS + VL_AJ_DEBITOS + VL_TOT_AJ_DEBITOS + VL_ESTORNOS_CRED) - (VL_TOT_CREDITOS + VL_AJ_CREDITOS + VL_TOT_AJ_CREDITOS + VL_ESTORNOS_DEB + VL_SLD_CREDOR_ANT)`.
+   - Se $> 0 \rightarrow VL\_SLD\_APURADO$; se $\le 0 \rightarrow VL\_SLD\_CREDOR\_TRANSPORTAR$.
+4. **`REGRA_ICMS_RECOLHER`**:
+   - Confere se `VL_ICMS_RECOLHER` = $\max(0, VL\_SLD\_APURADO - VL\_TOT\_DED)$.
+5. **`REGRA_ICMS_REC_E116`**:
+   - Confere se a soma de `VL_OR` de todos os registros `E116` vinculados ao `E110` é igual a `(VL_ICMS_RECOLHER + DEB_ESP)`.
+6. **`REGRA_VL_MERC_C170` & `REGRA_VALIDA_DESC_DOC_ITEM`**:
+   - O valor `VL_MERC` do `C100` deve ser $\ge$ soma de `VL_ITEM` dos filhos `C170` (com tolerância de arredondamento de R$ 0,02).
+   - O valor `VL_DESC` do `C100` deve ser igual à soma de `VL_DESC` dos filhos `C170`.
+7. **`REGRA_VL_BC_ICMS_ANALIT` e `REGRA_VL_ICMS_ANALIT`**:
+   - Soma das bases e impostos dos registros analíticos `C190` batendo estritamente com `C100`.
+8. **`REGRA_ALIQ_ICMS_C170`**:
+   - Exige alíquota de ICMS $> 0$ quando os 2 últimos dígitos do CST forem 00, 10, 20 ou 70 para saídas normais.
+
+### D. Regras Priorizadas de Controle da Produção e Estoque (Bloco K)
+1. **`REGRA_DATA_FINAL_ESTOQUE`**:
+   - No registro `K200`, o campo `DT_EST` deve ser exatamente igual ao campo `DT_FIN` do período `K100` pai.
+2. **`REGRA_DIFERENTE_COD_ITEM_RESULTANTE_K230`**:
+   - O item consumido no `K235` deve ser obrigatoriamente diferente do item produzido resultante do registro pai `K230`.
+3. **`REGRA_DIFERENTE_COD_ITEM_RESULTANTE_K250`**:
+   - O item consumido no `K255` deve ser obrigatoriamente diferente do item produzido em terceiro do registro pai `K250`.
+4. **`REGRA_VALIDA_DT_SAIDA_ESTOQUE_ALOCACAO_PRODUTO`**:
+   - A data de saída de insumo `K235.DT_SAIDA` deve estar compreendida entre `K230.DT_INI_OP` e `K230.DT_FIN_OP`.
+5. **`REGRA_OBRIGATORIO_K235_V2`**:
+   - Quando o tipo de leiaute `K010` for completo (`IND_TP_LEIAUTE = 1`), é obrigatória a existência de insumos `K235` para as ordens de produção concluídas no período.
+6. **`REGRA_OBRIGATORIO_COD_PART_ESTOQUE` & `REGRA_NAO_INFORMAR_COD_PART_K200`**:
+   - Se `IND_EST` for 1 (posse de terceiros) ou 2 (terceiros em posse da empresa), o campo `COD_PART` é obrigatório; se `IND_EST = 0`, é proibido informar `COD_PART`.
+7. **`REGRA_VALIDA_COD_ITEM_TP_ITEM`**:
+   - Itens informados no Bloco K devem possuir tipo cadastrado no `0200` compatível com insumo/produto (00, 01, 02, 03, 04, 05, 10).
 
 ---
 
-## 4. Arquitetura Técnica & Estrutura de Componentes
+## 4. Arquitetura Técnica & Estrutura de Dados
+
+### Diagrama do Sistema de Validação
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    SPED Fiscal Editor Pro                   │
-│               Root Layout (`html.dark` / `html`)            │
+│                 SPED Fiscal Editor Pro                      │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-                ┌──────────────┴──────────────┐
-                ▼                             ▼
-       ┌──────────────────┐          ┌──────────────────┐
-       │   ThemeContext   │          │   localStorage   │
-       │ ('dark'|'light') │◄────────►│('sped_theme_pref)│
-       └────────┬─────────┘          └──────────────────┘
-                │
-                ├─────────────────────────────┐
-                ▼                             ▼
-   ┌──────────────────────────┐  ┌──────────────────────────┐
-   │          Navbar          │  │     Workspace Tabs       │
-   │ ┌──────────────────────┐ │  │ ┌──────────────────────┐ │
-   │ │ Theme Toggle Button  │ │  │ │ DashboardTab         │ │
-   │ │ (Sun ☀️ / Moon 🌙)   │ │  │ │ RecordEditorTab      │ │
-   │ └──────────────────────┘ │  │ │ CfopAnalysisTab      │ │
-   │                          │  │ │ ValidationTab        │ │
-   │                          │  │ │ GlobalSearchTab      │ │
-   └──────────────────────────┘  │ └──────────────────────┘ │
-                                 │                          │
-                                 │ Modais (IcmsCst, Cte,    │
-                                 │         Inventário, PDF) │
-                                 └──────────────────────────┘
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+┌───────────────────────────┐         ┌───────────────────────────┐
+│     pvaRulesCatalog.ts    │         │      spedValidator.ts     │
+│ - Definições das Regras   │         │ - Motor de Validação      │
+│ - Mensagens Oficiais PVA  │◄────────┤ - Agregações Bloco E / C  │
+│ - Orientações de Correção │         │ - Consistência Bloco K    │
+└───────────────────────────┘         └─────────────┬─────────────┘
+                                                    │
+                                                    ▼
+                                      ┌───────────────────────────┐
+                                      │    ValidationIssue[]      │
+                                      │ + pvaRuleId               │
+                                      │ + pvaGuidance             │
+                                      │ + calculatedValue vs real │
+                                      └─────────────┬─────────────┘
+                                                    │
+                                                    ▼
+                                      ┌───────────────────────────┐
+                                      │    ValidationTab.tsx      │
+                                      │ - Tabela de inconsistênc. │
+                                      │ - Badge da Regra PVA      │
+                                      │ - Drawer/Card de Ajuda    │
+                                      │ - Filtro por Regra PVA    │
+                                      └───────────────────────────┘
 ```
 
-### Etapas de Execução Planejadas
-1. **Configuração de Estilos e Variantes**:
-   - Ajustar `src/index.css` para habilitar a variante `dark` no Tailwind v4.
-   - Definir script inline ou inicializador no `index.html` para aplicar a classe `dark` antes da renderização inicial, evitando flashes brancos (FOUC).
-2. **Criação do `ThemeContext` & Hook `useTheme`**:
-   - Arquivo `src/context/ThemeContext.tsx` gerenciando estado, sincronização com o DOM e `localStorage`.
-3. **Integração na `Navbar`**:
-   - Inserir o botão de alternância de tema no grupo de controles da Navbar ao lado do botão de PDF e Desfazer/Refazer.
-4. **Refinamento Estético nas Abas e Componentes**:
-   - Adaptar classes de fundo, texto e bordas nas abas principais (`App.tsx`, `DashboardTab.tsx`, `RecordEditorTab.tsx`, `CfopAnalysisTab.tsx`, `ValidationTab.tsx`, `GlobalSearchTab.tsx`).
-   - Assegurar contraste legível para campos de formulário, grelhas tabulares e modais.
-5. **Verificação & Testes**:
-   - Validar alternância instantânea sem erros de compilação ou regressões funcionais.
+### Mapeamento de Estado e Modelos
+- **`ValidationIssue`** (atualizado):
+  - `pvaRuleId?: string` (código da regra, ex: `REGRA_VL_TOT_DEBITOS_E110_17002_V1`).
+  - `pvaGuidance?: string` (orientação de cálculo e correção do PVA).
+  - `difference?: { expected: number; found: number }` (valores comparados quando há divergência de somatório).
+
+---
+
+## Plano de Verificação
+
+1. **Compilação e Tipagem**:
+   - Executar `compile_applet` para garantir TypeScript limpo sem quebras de contrato.
+2. **Teste com Amostras do SPED**:
+   - Validar o arquivo de amostra `public/samples/sample_sped.txt`.
+   - Testar arquivos com divergências intencionais de somatório no E110 e conferir se o código da regra `REGRA_VL_TOT_DEBITOS_E110_17002_V1` e os valores apurados aparecem corretamente.
+   - Testar validações do Bloco K (K200 com data divergente e K235 com mesmo código de item do K230).
+3. **Inspeção de UI**:
+   - Testar filtro por texto de regra na aba de Validações (`ValidationTab`).
+   - Conferir legibilidade e ergonomia visual no Tema Claro e no Tema Escuro.

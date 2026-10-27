@@ -72,6 +72,13 @@ export interface ValidationIssue {
   field?: string;
   line?: number;
   message: string;
+  pvaRuleId?: string;
+  pvaGuidance?: string;
+  difference?: {
+    expected: number;
+    found: number;
+    fieldName?: string;
+  };
   canFix?: boolean;
   fixAction?: 'clean_0200' | 'fix_whitespace_0200' | 'fix_c100_structure';
   relatedLines?: number[];
