@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -37,6 +37,14 @@ ENV/
 .coverage
 htmlcov/
 .tox/
+
+# Node / Vite
+node_modules/
+dist-ssr/
+*.local
+.env
+.env.local
+.env.*.local
 
 # Logs
 *.log
