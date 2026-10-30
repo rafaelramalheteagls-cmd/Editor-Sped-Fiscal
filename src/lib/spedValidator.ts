@@ -489,18 +489,21 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
       const sumVlIcmsSt = c190List.reduce((acc, l) => acc + parseFloatSped(l.fields[7]), 0);
       const sumVlIpi = c190List.reduce((acc, l) => acc + parseFloatSped(l.fields[9]), 0);
 
-      // Total da operação C190 vs VL_DOC
+      // Total da operação C190 vs VL_DOC (REGRA_C190_SOMA_VL_OPR)
       if (Math.abs(sumVlOpr - vlDoc) > 0.05) {
+        const rule = getPvaRule('REGRA_C190_SOMA_VL_OPR');
         issues.push({
           id: `C100_DIFF_DOC_${c100.lineNumber}`,
           severity: 'ERRO',
-          code: 'REG-C190-BAL',
+          code: 'REGRA_C190_SOMA_VL_OPR',
           record: 'C190',
           line: c190List[0].lineNumber,
           field: 'VL_OPR',
           message: `Soma de VL_OPR nos registros C190 (${formatCurrencyBRL(sumVlOpr)}) difere de VL_DOC no C100 (${formatCurrencyBRL(vlDoc)}) na NF #${docNum}.`,
+          pvaRuleId: 'REGRA_C190_SOMA_VL_OPR',
+          pvaGuidance: rule?.guidance,
           canFix: true,
-          fixAction: 'fix_c100_structure',
+          fixAction: 'fix_c190_vl_opr_balance',
           difference: { expected: vlDoc, found: sumVlOpr, fieldName: 'VL_OPR' },
           relatedLines: [c100.lineNumber, ...c190List.map(l => l.lineNumber)],
         });

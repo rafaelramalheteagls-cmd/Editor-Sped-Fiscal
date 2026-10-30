@@ -36,6 +36,7 @@ interface ValidationTabProps {
   onFixD100ParticipantMismatch?: () => void;
   onCleanUnused0150?: () => void;
   onNormalizeSimplesCst102?: () => void;
+  onFixC190VlOprBalance?: () => void;
   onFixAllPvaReportErrors?: () => void;
   onNavigateToRecord: (reg: string, lineId?: number) => void;
 }
@@ -52,6 +53,7 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
   onFixD100ParticipantMismatch,
   onCleanUnused0150,
   onNormalizeSimplesCst102,
+  onFixC190VlOprBalance,
   onFixAllPvaReportErrors,
   onNavigateToRecord,
 }) => {
@@ -75,6 +77,44 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
   const warnings = issues.filter(i => i.severity === 'ADVERTENCIA');
   const infos = issues.filter(i => i.severity === 'INFO');
   const pvaIssuesCount = issues.filter(i => Boolean(i.pvaRuleId)).length;
+
+  // Estatísticas dinâmicas de inconsistências corrigíveis nesta base carregada
+  const fixableStats = useMemo(() => {
+    const c190Opr = issues.filter(i => i.fixAction === 'fix_c190_vl_opr_balance').length;
+    const d100Part = issues.filter(i => i.fixAction === 'fix_d100_participant_mismatch').length;
+    const d100Mun = issues.filter(i => i.fixAction === 'fix_missing_d100_municipios').length;
+    const tipoItem0200 = issues.filter(i => i.fixAction === 'fix_missing_tipo_item_0200').length;
+    const codMun0150 = issues.filter(i => i.fixAction === 'fix_missing_0150_municipios').length;
+    const unused0150 = issues.filter(i => i.fixAction === 'clean_unused_0150').length;
+    const cst102 = issues.filter(i => i.fixAction === 'normalize_simples_cst102').length;
+    const whitespace0200 = issues.filter(i => i.fixAction === 'fix_whitespace_0200').length;
+    const c100Struct = issues.filter(i => i.fixAction === 'fix_c100_structure').length;
+    const unused0200 = issues.filter(i => i.fixAction === 'clean_0200').length;
+    const total =
+      c190Opr +
+      d100Part +
+      d100Mun +
+      tipoItem0200 +
+      codMun0150 +
+      unused0150 +
+      cst102 +
+      whitespace0200 +
+      c100Struct +
+      unused0200;
+    return {
+      c190Opr,
+      d100Part,
+      d100Mun,
+      tipoItem0200,
+      codMun0150,
+      unused0150,
+      cst102,
+      whitespace0200,
+      c100Struct,
+      unused0200,
+      total,
+    };
+  }, [issues]);
 
   const filteredIssues = issues.filter(issue => {
     if (filterSeverity !== 'ALL' && issue.severity !== filterSeverity) return false;
@@ -187,14 +227,25 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
             <span>Revalidar</span>
           </button>
 
-          {onFixAllPvaReportErrors && issues.some(i => ['fix_missing_tipo_item_0200', 'fix_missing_d100_municipios', 'fix_missing_0150_municipios', 'fix_d100_participant_mismatch'].includes(i.fixAction || '')) && (
+          {onFixAllPvaReportErrors && fixableStats.total > 0 && (
             <button
               onClick={onFixAllPvaReportErrors}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition cursor-pointer animate-pulse"
-              title="Aplica em lote a resolução de todos os 257 erros apontados pelo PVA (0200, D100 e 0150)"
+              title="Aplica em lote a resolução de todas as pendências fiscais corrigíveis e recalcula totalizadores"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Corrigir Todos os Erros do PVA em 1 Clique</span>
+              <span>Corrigir Todas em 1 Clique ({fixableStats.total})</span>
+            </button>
+          )}
+
+          {onFixC190VlOprBalance && fixableStats.c190Opr > 0 && (
+            <button
+              onClick={onFixC190VlOprBalance}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition cursor-pointer"
+              title="Equilibra soma de VL_OPR no C190 com o VL_DOC do C100"
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span>Balancear C190 VL_OPR ({fixableStats.c190Opr})</span>
             </button>
           )}
 
@@ -297,8 +348,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
         </div>
       </div>
 
-      {/* Alerta de Destaque: Erros Oficiais do PVA Encontrados */}
-      {issues.some(i => ['fix_missing_tipo_item_0200', 'fix_missing_d100_municipios', 'fix_missing_0150_municipios', 'fix_d100_participant_mismatch'].includes(i.fixAction || '')) && (
+      {/* Alerta de Destaque: Inconsistências Fiscais Identificadas */}
+      {fixableStats.total > 0 && (
         <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950/40 dark:via-purple-950/40 dark:to-pink-950/40 border border-indigo-200 dark:border-indigo-800 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm">
           <div className="flex items-start space-x-3">
             <div className="p-2 rounded-lg bg-indigo-600 text-white shrink-0 mt-0.5">
@@ -306,27 +357,33 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span>Relatório Oficial do PVA Reconhecido (257 Erros Críticos)</span>
+                <span>Inconsistências Fiscais Detectadas ({fixableStats.total} passíveis de correção automática)</span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
                   Compatibilidade 100% PVA
                 </span>
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                Identificadas as exatas pendências fiscais que impedem a validação no PVA da Receita Federal:
-                <strong className="text-slate-900 dark:text-white"> 239</strong> no 0200 (<code className="text-indigo-600 dark:text-indigo-400">TIPO_ITEM</code> ausente), 
-                <strong className="text-slate-900 dark:text-white"> 14</strong> no D100 (<code className="text-indigo-600 dark:text-indigo-400">COD_MUN_ORIG/DEST</code> em fretes), 
-                <strong className="text-slate-900 dark:text-white"> 2</strong> no 0150 (<code className="text-indigo-600 dark:text-indigo-400">COD_MUN</code> brasileiro) e 
-                <strong className="text-slate-900 dark:text-white"> 2</strong> no D100 (CNPJ emitente da chave divergente).
+                Identificadas as pendências que podem ser regularizadas automaticamente:
+                {[
+                  fixableStats.c190Opr > 0 ? ` ${fixableStats.c190Opr} no C190 (VL_OPR divergente de VL_DOC)` : '',
+                  fixableStats.d100Part > 0 ? ` ${fixableStats.d100Part} no D100 (CNPJ emitente da chave divergente)` : '',
+                  fixableStats.tipoItem0200 > 0 ? ` ${fixableStats.tipoItem0200} no 0200 (TIPO_ITEM ausente)` : '',
+                  fixableStats.d100Mun > 0 ? ` ${fixableStats.d100Mun} no D100 (municípios de origem/destino)` : '',
+                  fixableStats.codMun0150 > 0 ? ` ${fixableStats.codMun0150} no 0150 (código do município)` : '',
+                  fixableStats.unused0150 > 0 ? ` ${fixableStats.unused0150} no 0150 (participante sem movimento)` : '',
+                  fixableStats.cst102 > 0 ? ` ${fixableStats.cst102} no C170 (CST 102 Simples Nacional)` : '',
+                  fixableStats.whitespace0200 > 0 ? ` ${fixableStats.whitespace0200} no 0200 (espaços em descrições)` : '',
+                ].filter(Boolean).join(' • ')}.
               </p>
             </div>
           </div>
           {onFixAllPvaReportErrors && (
             <button
               onClick={onFixAllPvaReportErrors}
-              className="shrink-0 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow hover:shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
+              className="shrink-0 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow hover:shadow-md transition flex items-center justify-center space-x-2 cursor-pointer animate-pulse"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>Corrigir Todos em 1 Clique</span>
+              <span>Corrigir Todas em 1 Clique</span>
             </button>
           )}
         </div>
@@ -523,6 +580,7 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
                               else if (issue.fixAction === 'fix_d100_participant_mismatch' && onFixD100ParticipantMismatch) onFixD100ParticipantMismatch();
                               else if (issue.fixAction === 'clean_unused_0150' && onCleanUnused0150) onCleanUnused0150();
                               else if (issue.fixAction === 'normalize_simples_cst102' && onNormalizeSimplesCst102) onNormalizeSimplesCst102();
+                              else if (issue.fixAction === 'fix_c190_vl_opr_balance' && onFixC190VlOprBalance) onFixC190VlOprBalance();
                               else if (issue.fixAction === 'fix_all_pva_errors' && onFixAllPvaReportErrors) onFixAllPvaReportErrors();
                             }}
                             className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-medium text-[11px] border border-emerald-200 dark:border-emerald-800 cursor-pointer transition"

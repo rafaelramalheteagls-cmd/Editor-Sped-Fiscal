@@ -42,6 +42,7 @@ import {
   fixD100ParticipantMismatch,
   cleanUnused0150,
   normalizeSimplesCst102,
+  fixC190VlOprBalance,
   fixAllPvaReportErrors
 } from './lib/spedFiscalSync';
 
@@ -420,13 +421,23 @@ export const App: React.FC = () => {
     }
   };
 
-  // PVA Fix: All PVA 257 errors batch fix
+  // PVA Fix: Balance C190 VL_OPR with C100 VL_DOC
+  const handleFixC190VlOprBalance = () => {
+    const { updatedLines, fixedCount } = fixC190VlOprBalance(lines);
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `Valor da operação (VL_OPR) balanceado no registro C190 em ${fixedCount} nota(s) fiscal(is).`);
+    } else {
+      showToast('Todos os registros C190 já estão devidamente balanceados com o C100.', 'info');
+    }
+  };
+
+  // PVA Fix: All PVA errors & warnings batch fix
   const handleFixAllPvaReportErrors = () => {
     const { updatedLines, summary, stats } = fixAllPvaReportErrors(lines);
     if (stats.totalFixed > 0) {
       commitLines(updatedLines, summary);
     } else {
-      showToast('Nenhuma pendência do PVA pendente de correção automática encontrada.', 'info');
+      showToast('Nenhuma pendência fiscal passível de correção automática encontrada.', 'info');
     }
   };
 
@@ -677,6 +688,7 @@ export const App: React.FC = () => {
               onFixD100ParticipantMismatch={handleFixD100ParticipantMismatch}
               onCleanUnused0150={handleCleanUnused0150}
               onNormalizeSimplesCst102={handleNormalizeSimplesCst102}
+              onFixC190VlOprBalance={handleFixC190VlOprBalance}
               onFixAllPvaReportErrors={handleFixAllPvaReportErrors}
               onNavigateToRecord={handleNavigateToRecord}
             />

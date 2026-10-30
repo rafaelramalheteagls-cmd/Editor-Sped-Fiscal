@@ -257,6 +257,21 @@ export const PVA_RULES_CATALOG: Record<string, PvaRuleDefinition> = {
     category: 'DOCUMENTO_FISCAL'
   },
 
+  REGRA_C190_SOMA_VL_OPR: {
+    id: 'REGRA_C190_SOMA_VL_OPR',
+    record: 'C190',
+    field: 'VL_OPR',
+    name: 'Soma do Valor da Operação no Analítico versus Valor do Documento',
+    officialMessage:
+      'A soma do campo VL_OPR dos registros analíticos (C190) deve ser igual ao valor total do documento fiscal (campo VL_DOC do Registro C100).',
+    guidance:
+      'No SPED Fiscal, o somatório do campo 05 (VL_OPR) de todos os registros analíticos C190 de uma nota fiscal deve coincidir com o campo 12 (VL_DOC) do registro mestre C100.',
+    solution:
+      'Ajuste os valores de VL_OPR dos registros C190 para que a soma reflita exatamente o VL_DOC do C100, ou clique em Auto-Corrigir para equilibrar o valor da operação.',
+    formula: 'Σ(C190.VL_OPR) = C100.VL_DOC',
+    category: 'DOCUMENTO_FISCAL'
+  },
+
   REGRA_VL_BC_ICMS_ST_ANALIT: {
     id: 'REGRA_VL_BC_ICMS_ST_ANALIT',
     record: 'C100',

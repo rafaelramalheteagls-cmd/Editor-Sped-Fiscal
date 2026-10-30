@@ -6,6 +6,7 @@
 
 import { SpedLine } from '../types';
 import { parseFloatSped, formatFloatSped } from './spedParser';
+import { recalculateAllSpedTotalizers } from './spedExporter';
 
 export const CFOP_USO_CONSUMO_ENTRADA = ['1556', '2556', '3556', '1407', '2407', '1551', '2551'];
 export const CFOP_CONTABIL_ENTRADA = ['1910', '2910', '1911', '2911', '1949', '2949', '1904', '2904'];
@@ -726,23 +727,30 @@ export function fixMissing0150Municipios(lines: SpedLine[]): {
 
 /**
  * Corrige a divergência entre a chave de acesso do CT-e (D100) e o participante informado.
- * Identifica o CNPJ da transportadora contido na chave de 44 dígitos e vincula ao código do participante correto.
+ * Identifica o CNPJ da transportadora contido na chave de 44 dígitos e vincula ao código do participante correto,
+ * ou atualiza o CNPJ da filial correspondente no registro 0150.
  */
 export function fixD100ParticipantMismatch(lines: SpedLine[]): {
   updatedLines: SpedLine[];
   fixedCount: number;
 } {
-  // Mapeia CNPJ -> código do participante no 0150
+  // Mapeia CNPJ -> código do participante no 0150 e participante -> objeto linha
   const cnpjToPartMap = new Map<string, string>();
+  const partMap = new Map<string, SpedLine>();
   for (const line of lines) {
     if (line.reg === '0150') {
       const codPart = (line.fields[0] || '').trim();
       const cnpj = (line.fields[3] || '').trim();
+      if (codPart) partMap.set(codPart, line);
       if (codPart && cnpj) {
         cnpjToPartMap.set(cnpj, codPart);
       }
     }
   }
+
+  // Descobre código do município do declarante (para saneamento se necessário)
+  const r0000 = lines.find(l => l.reg === '0000');
+  const declarantMun = r0000 && r0000.fields[9] ? r0000.fields[9].trim() : '3204708';
 
   let fixedCount = 0;
   const updatedLines = lines.map(line => {
@@ -754,16 +762,36 @@ export function fixD100ParticipantMismatch(lines: SpedLine[]): {
     const cnpjChave = chvCte.substring(6, 20);
     const correctPart = cnpjToPartMap.get(cnpjChave);
     const currentPart = (line.fields[2] || '').trim();
+    const currentPartLine = partMap.get(currentPart);
+    const currentCnpj = currentPartLine ? (currentPartLine.fields[3] || '').trim() : '';
 
-    if (correctPart && correctPart !== currentPart) {
-      const newFields = [...line.fields];
-      newFields[2] = correctPart;
-      fixedCount++;
-      return {
-        ...line,
-        fields: newFields,
-        raw: `|D100|${newFields.join('|')}|`,
-      };
+    if (currentCnpj && currentCnpj !== cnpjChave) {
+      if (correctPart) {
+        if (correctPart !== currentPart) {
+          const newFields = [...line.fields];
+          newFields[2] = correctPart;
+          fixedCount++;
+          return {
+            ...line,
+            fields: newFields,
+            raw: `|D100|${newFields.join('|')}|`,
+          };
+        }
+      } else {
+        // Se a filial não está no 0150 mas o participante atual é a transportadora da nota,
+        // alinha o CNPJ da filial no 0150 para sanar o erro do PVA
+        if (currentPartLine) {
+          const newPartFields = [...currentPartLine.fields];
+          newPartFields[3] = cnpjChave;
+          if (!newPartFields[6] || newPartFields[6] === '') {
+            newPartFields[6] = declarantMun;
+          }
+          currentPartLine.fields = newPartFields;
+          currentPartLine.raw = `|0150|${newPartFields.join('|')}|`;
+          cnpjToPartMap.set(cnpjChave, currentPart);
+          fixedCount++;
+        }
+      }
     }
 
     return line;
@@ -844,7 +872,116 @@ export function normalizeSimplesCst102(lines: SpedLine[]): { updatedLines: SpedL
 }
 
 /**
- * Executa em lote a resolução de todos os erros apontados pelo relatório do PVA
+ * Corrige inconsistências de espaços no início, fim ou espaços duplos na descrição dos itens do registro 0200
+ */
+export function fixWhitespace0200(lines: SpedLine[]): { updatedLines: SpedLine[]; fixedCount: number } {
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg === '0200') {
+      const descr = line.fields[1] || '';
+      const cleaned = descr.trim().replace(/\s+/g, ' ');
+      if (descr !== cleaned) {
+        fixedCount++;
+        const newFields = [...line.fields];
+        newFields[1] = cleaned;
+        return {
+          ...line,
+          fields: newFields,
+          raw: `|0200|${newFields.join('|')}|`,
+        };
+      }
+    }
+    return line;
+  });
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Corrige divergências onde a soma de VL_OPR nos registros C190 difere de VL_DOC no C100 (REGRA_C190_SOMA_VL_OPR).
+ * Ajusta o valor unitário ou distribui proporcionalmente entre os registros analíticos.
+ */
+export function fixC190VlOprBalance(lines: SpedLine[]): { updatedLines: SpedLine[]; fixedCount: number } {
+  let fixedCount = 0;
+  const updatedLines: SpedLine[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.reg === 'C100') {
+      updatedLines.push(line);
+      const vlDoc = parseFloatSped(line.fields[10]);
+      i++;
+
+      const noteLines: SpedLine[] = [];
+      const c190Indices: number[] = [];
+
+      while (i < lines.length) {
+        const sub = lines[i];
+        if (sub.reg === 'C100' || !sub.reg.startsWith('C')) {
+          break;
+        }
+        if (sub.reg === 'C190') {
+          c190Indices.push(noteLines.length);
+        }
+        noteLines.push(sub);
+        i++;
+      }
+
+      if (c190Indices.length > 0) {
+        const sumOpr = c190Indices.reduce((acc, idx) => acc + parseFloatSped(noteLines[idx].fields[3]), 0);
+        if (Math.abs(sumOpr - vlDoc) > 0.05) {
+          fixedCount++;
+          if (c190Indices.length === 1) {
+            const idx = c190Indices[0];
+            const target = noteLines[idx];
+            const newFields = [...target.fields];
+            newFields[3] = formatFloatSped(vlDoc);
+            noteLines[idx] = {
+              ...target,
+              fields: newFields,
+              raw: `|C190|${newFields.join('|')}|`,
+            };
+          } else {
+            let runningSum = 0;
+            for (let k = 0; k < c190Indices.length; k++) {
+              const idx = c190Indices[k];
+              const target = noteLines[idx];
+              const curVal = parseFloatSped(target.fields[3]);
+              const newFields = [...target.fields];
+
+              if (k === c190Indices.length - 1) {
+                const remaining = Math.round((vlDoc - runningSum) * 100) / 100;
+                newFields[3] = formatFloatSped(remaining);
+              } else {
+                const baseAlloc = sumOpr > 0 ? (curVal / sumOpr) * vlDoc : vlDoc / c190Indices.length;
+                const allocated = Math.round(baseAlloc * 100) / 100;
+                newFields[3] = formatFloatSped(allocated);
+                runningSum += allocated;
+              }
+
+              noteLines[idx] = {
+                ...target,
+                fields: newFields,
+                raw: `|C190|${newFields.join('|')}|`,
+              };
+            }
+          }
+        }
+      }
+
+      noteLines.forEach(l => updatedLines.push(l));
+    } else {
+      updatedLines.push(line);
+      i++;
+    }
+  }
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Executa em lote a resolução de todos os erros e advertências do PVA
  */
 export function fixAllPvaReportErrors(lines: SpedLine[]): {
   updatedLines: SpedLine[];
@@ -856,39 +993,64 @@ export function fixAllPvaReportErrors(lines: SpedLine[]): {
     fixedD100Part: number;
     removedUnused0150: number;
     normalizedCst102: number;
+    fixedC190VlOpr: number;
+    fixedWhitespace: number;
     totalFixed: number;
   };
 } {
   // 1. Corrige 0200 TIPO_ITEM
   const res0200 = fixMissingTipoItem0200(lines, '07');
 
-  // 2. Corrige D100 Participante pela Chave CT-e (troca T3 por T240)
+  // 2. Corrige D100 Participante pela Chave CT-e (incluindo atualização de filial em 0150)
   const resD100Part = fixD100ParticipantMismatch(res0200.updatedLines);
 
-  // 3. Remove participantes 0150 não referenciados em nenhum bloco (elimina T3 órfão do PVA)
-  const resClean0150 = cleanUnused0150(resD100Part.updatedLines);
+  // 3. Corrige C190 VL_OPR divergente de C100 VL_DOC
+  const resC190Opr = fixC190VlOprBalance(resD100Part.updatedLines);
 
-  // 4. Corrige 0150 COD_MUN para os participantes remanescentes
+  // 4. Remove participantes 0150 não referenciados em nenhum bloco
+  const resClean0150 = cleanUnused0150(resC190Opr.updatedLines);
+
+  // 5. Corrige 0150 COD_MUN para os participantes remanescentes
   const res0150 = fixMissing0150Municipios(resClean0150.updatedLines);
 
-  // 5. Corrige D100 Municípios de Origem e Destino
+  // 6. Corrige D100 Municípios de Origem e Destino
   const resD100Mun = fixMissingD100Municipios(res0150.updatedLines);
 
-  // 6. Normaliza CSOSN 102 para 900 no C170/C190 de entrada para eliminar advertência de alíquota
+  // 7. Normaliza CSOSN 102 para 900 no C170/C190 de entrada
   const resNormCst = normalizeSimplesCst102(resD100Mun.updatedLines);
+
+  // 8. Limpa espaços no 0200
+  const resWs = fixWhitespace0200(resNormCst.updatedLines);
+
+  // 9. Recalcula todos os totalizadores para garantir que contadores (0990, 9900, 9990, 9999) fiquem 100% perfeitos
+  const finalLines = recalculateAllSpedTotalizers(resWs.updatedLines);
 
   const totalFixed =
     res0200.fixedCount +
     res0150.fixedCount +
     resD100Part.fixedCount +
+    resC190Opr.fixedCount +
     resClean0150.removedCount +
     resD100Mun.fixedCount +
-    resNormCst.fixedCount;
+    resNormCst.fixedCount +
+    resWs.fixedCount;
 
-  const summary = `Correção em lote aplicada com sucesso: ${res0200.fixedCount} itens com TIPO_ITEM preenchidos no 0200, ${resD100Mun.fixedCount} campos de municípios preenchidos no D100, ${res0150.fixedCount} municípios preenchidos no 0150, ${resD100Part.fixedCount} vínculos de transportadora retificados no CT-e, ${resClean0150.removedCount} participante(s) órfão(s) removido(s) do 0150 e ${resNormCst.fixedCount} item(ns) com CST 102 ajustado(s) para 900. Total de ${totalFixed} inconsistências sanadas!`;
+  const partsSummary: string[] = [];
+  if (resC190Opr.fixedCount > 0) partsSummary.push(`${resC190Opr.fixedCount} nota(s) com C190 VL_OPR balanceado`);
+  if (resD100Part.fixedCount > 0) partsSummary.push(`${resD100Part.fixedCount} vínculo(s) de transportadora D100 retificado(s)`);
+  if (res0200.fixedCount > 0) partsSummary.push(`${res0200.fixedCount} TIPO_ITEM preenchido(s) no 0200`);
+  if (resD100Mun.fixedCount > 0) partsSummary.push(`${resD100Mun.fixedCount} município(s) preenchido(s) no D100`);
+  if (res0150.fixedCount > 0) partsSummary.push(`${res0150.fixedCount} município(s) preenchido(s) no 0150`);
+  if (resClean0150.removedCount > 0) partsSummary.push(`${resClean0150.removedCount} participante(s) órfão(s) removido(s)`);
+  if (resNormCst.fixedCount > 0) partsSummary.push(`${resNormCst.fixedCount} CST 102 ajustado(s) para 900`);
+  if (resWs.fixedCount > 0) partsSummary.push(`${resWs.fixedCount} produto(s) com espaços ajustados`);
+
+  const summary = totalFixed > 0
+    ? `Correção em lote aplicada com sucesso! ${totalFixed} inconsistências sanadas: ${partsSummary.join(', ')}. Totalizadores recalculados!`
+    : 'Todas as regras já estavam em conformidade.';
 
   return {
-    updatedLines: resNormCst.updatedLines,
+    updatedLines: finalLines,
     summary,
     stats: {
       fixed0200: res0200.fixedCount,
@@ -897,6 +1059,8 @@ export function fixAllPvaReportErrors(lines: SpedLine[]): {
       fixedD100Part: resD100Part.fixedCount,
       removedUnused0150: resClean0150.removedCount,
       normalizedCst102: resNormCst.fixedCount,
+      fixedC190VlOpr: resC190Opr.fixedCount,
+      fixedWhitespace: resWs.fixedCount,
       totalFixed,
     },
   };
