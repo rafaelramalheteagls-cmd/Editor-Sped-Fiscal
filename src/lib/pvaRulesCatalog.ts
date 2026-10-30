@@ -465,6 +465,87 @@ export const PVA_RULES_CATALOG: Record<string, PvaRuleDefinition> = {
       'Na produção conjunta (K290), um mesmo código de item não pode figurar simultaneamente como produto resultante (K291) e como insumo consumido (K292).',
     solution: 'Revise os códigos apontados nos registros K291 e K292 da produção conjunta.',
     category: 'BLOCO_K'
+  },
+
+  REGRA_0200_TIPO_ITEM_OBRIGATORIO: {
+    id: 'REGRA_0200_TIPO_ITEM_OBRIGATORIO',
+    record: '0200',
+    field: 'TIPO_ITEM',
+    name: 'Tipo do Item Obrigatório no Registro 0200',
+    officialMessage: 'Campo obrigatório.',
+    guidance:
+      'O campo 07 (TIPO_ITEM) do registro 0200 é de preenchimento obrigatório pelo Guia Prático da EFD e pelo PVA. Deve conter um dos valores válidos da tabela oficial: 00 (Mercadoria para Revenda), 01 (Matéria-Prima), 02 (Embalagem), 03 (Produto em Processo), 04 (Produto Acabado), 05 (Subproduto), 06 (Produto Intermediário), 07 (Material de Uso e Consumo), 08 (Ativo Imobilizado), 09 (Serviços), 10 (Outros Insumos) ou 99 (Outras).',
+    solution:
+      'Preencha o campo TIPO_ITEM no registro 0200 com a classificação correspondente ao item.',
+    category: 'CADASTRO'
+  },
+
+  REGRA_D100_MUNICIPIOS_OBRIGATORIOS: {
+    id: 'REGRA_D100_MUNICIPIOS_OBRIGATORIOS',
+    record: 'D100',
+    field: 'COD_MUN_ORIG / COD_MUN_DEST',
+    name: 'Município de Origem e Destino do Transporte no D100',
+    officialMessage:
+      'Para documentos de entrada (IND_OPER=0), o preenchimento do campo é obrigatório se "COD_MOD" for igual a "57", "63" ou "67".',
+    guidance:
+      'No registro D100 referente a Conhecimento de Transporte Eletrônico (CT-e, modelo 57) de entrada (aquisição de serviço de frete), os campos 24 (COD_MUN_ORIG) e 25 (COD_MUN_DEST) devem ser obrigatoriamente preenchidos com os códigos IBGE de 7 dígitos dos municípios de início e término da prestação do serviço.',
+    solution:
+      'Informe os códigos IBGE dos municípios de origem e destino da prestação de transporte nos campos 24 e 25 do registro D100.',
+    category: 'DOCUMENTO_FISCAL'
+  },
+
+  REGRA_0150_COD_MUN_BRASIL: {
+    id: 'REGRA_0150_COD_MUN_BRASIL',
+    record: '0150',
+    field: 'COD_MUN',
+    name: 'Código do Município IBGE para Participante no Brasil',
+    officialMessage: 'Campo obrigatório para contribuintes domiciliados no Brasil.',
+    guidance:
+      'No registro 0150, para qualquer participante domiciliado no Brasil (COD_PAIS igual a 1058 ou omitido), o preenchimento do código do município IBGE (campo 08 - COD_MUN) é estritamente obrigatório e deve possuir 7 dígitos.',
+    solution:
+      'Informe o código do município do IBGE (7 dígitos) correspondente à cidade do participante no registro 0150.',
+    category: 'CADASTRO'
+  },
+
+  REGRA_D100_CNPJ_CHAVE_PARTICIPANTE: {
+    id: 'REGRA_D100_CNPJ_CHAVE_PARTICIPANTE',
+    record: 'D100',
+    field: 'CHV_CTE',
+    name: 'Conferência do CNPJ do Emitente da Chave com o Participante',
+    officialMessage:
+      'O CNPJ/CPF da chave do documento eletrônico não confere com o CNPJ/CPF do participante informado.',
+    guidance:
+      'Os dígitos da posição 7 a 20 da chave do CT-e de 44 dígitos representam o CNPJ da transportadora emitente do documento fiscal. Esse CNPJ deve ser idêntico ao CNPJ cadastrado no registro 0150 para o código de participante (COD_PART) informado no registro D100.',
+    solution:
+      'Corrija o código do participante (COD_PART) no registro D100 para apontar para a transportadora emissora do CT-e, ou corrija o CNPJ cadastrado no registro 0150.',
+    category: 'DOCUMENTO_FISCAL'
+  },
+
+  REGRA_0150_SEM_MOVIMENTO: {
+    id: 'REGRA_0150_SEM_MOVIMENTO',
+    record: '0150',
+    field: 'COD_PART',
+    name: 'Participante não Referenciado na Escrituração',
+    officialMessage: 'Não informar participante, se não referenciado em pelo menos um dos demais blocos.',
+    guidance:
+      'Pelo Guia Prático da EFD e validador do PVA, o registro 0150 só deve conter participantes que foram efetivamente referenciados em registros de documentos fiscais (Blocos C, D) ou de estoque/produção (Blocos H, K). Participantes cadastrados sem qualquer movimentação no período geram erro impeditivo de validação.',
+    solution:
+      'Remova o participante não movimentado do registro 0150 ou vincule-o ao documento fiscal correspondente.',
+    category: 'CADASTRO'
+  },
+
+  REGRA_ALIQ_ICMS_C170_SIMPLES: {
+    id: 'REGRA_ALIQ_ICMS_C170_SIMPLES',
+    record: 'C170',
+    field: 'ALIQ_ICMS',
+    name: 'Alíquota de ICMS em Documento de Entrada (Simples Nacional / CST 102)',
+    officialMessage:
+      'Contribuintes optantes pelo Simples Nacional devem desconsiderar essa advertência. Se o campo IND_OPER do registro C100 for igual a 0(zero) e se os dois últimos caracteres do CST_ICMS forem 02 ou 15, o campo ALIQ_ICMS deve ser maior que 0 (zero).',
+    guidance:
+      'No PVA, códigos de CST terminados em 02 ou 15 ativam a regra de validação de alíquota ad rem dos combustíveis. Quando um item é escriturado com CSOSN 102 (Simples Nacional sem crédito) e alíquota 0,00, o PVA emite esta advertência ressaltando que optantes pelo Simples Nacional podem desconsiderá-la. Para eliminar completamente o aviso no PVA, pode-se padronizar o CST para 090 ou 900.',
+    solution:
+      'Trata-se de uma advertência que não impede a transmissão. Se desejar zerar os avisos, padronize o CST do item para 900 ou 090.',
+    category: 'DOCUMENTO_FISCAL'
   }
 };
 

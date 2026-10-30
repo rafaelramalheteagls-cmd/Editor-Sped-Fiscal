@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de implementação detalhado para integrar o catálogo de regras oficiais do PVA SPED Fiscal (Ato 020 / Estrutura 001 v2), priorizando apurações dos Blocos E e C, controle do Bloco K (produção e estoque), e exibição enriquecida das inconsistências com código oficial da regra e orientações práticas de correção.",
-  "updatedAt":  "2026-10-23T16:34:06.020519297Z",
+  "summary":  "Plano de implementação para equiparar a validação do SPED Fiscal Editor Pro ao PVA da Receita Federal, diagnosticando com exatidão os 257 erros reais (239 de TIPO_ITEM no 0200, 14 de COD_MUN_ORIG/DEST no D100, 2 de COD_MUN no 0150 e 2 de CNPJ chave vs participante no D100) e fornecendo ferramentas de correção automática em lote.",
+  "updatedAt":  "2026-10-28T15:52:07.711107916Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

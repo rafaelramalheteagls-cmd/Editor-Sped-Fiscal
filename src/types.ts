@@ -80,7 +80,17 @@ export interface ValidationIssue {
     fieldName?: string;
   };
   canFix?: boolean;
-  fixAction?: 'clean_0200' | 'fix_whitespace_0200' | 'fix_c100_structure';
+  fixAction?: 
+    | 'clean_0200' 
+    | 'fix_whitespace_0200' 
+    | 'fix_c100_structure'
+    | 'fix_missing_tipo_item_0200'
+    | 'fix_missing_d100_municipios'
+    | 'fix_missing_0150_municipios'
+    | 'fix_d100_participant_mismatch'
+    | 'clean_unused_0150'
+    | 'normalize_simples_cst102'
+    | 'fix_all_pva_errors';
   relatedLines?: number[];
 }
 

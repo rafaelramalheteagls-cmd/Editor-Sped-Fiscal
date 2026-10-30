@@ -15,6 +15,14 @@ export function recalculateAllSpedTotalizers(lines: SpedLine[]): SpedLine[] {
   // Vamos filtrar linhas geradas automaticamente de encerramento do Bloco 9 para reconstruir perfeitamente
   const coreLines = lines.filter(l => !['9900', '9990', '9999'].includes(l.reg));
 
+  // Contagem de linhas por bloco (para 0990, C990, D990, E990, etc.)
+  const blockTotalizerRegs = new Set(['0990', 'B990', 'C990', 'D990', 'E990', 'G990', 'H990', 'K990', '1990']);
+  const blockLineCounts: Record<string, number> = {};
+  for (const l of coreLines) {
+    const block = l.reg[0];
+    blockLineCounts[block] = (blockLineCounts[block] || 0) + 1;
+  }
+
   // Contagem por registro até agora
   const counts: Record<string, number> = {};
   for (const l of coreLines) {
@@ -35,11 +43,17 @@ export function recalculateAllSpedTotalizers(lines: SpedLine[]): SpedLine[] {
 
   // Primeiro adiciona coreLines recalculando contadores de blocos se existirem
   for (const line of coreLines) {
+    let finalFields = [...line.fields];
+    if (blockTotalizerRegs.has(line.reg)) {
+      finalFields[0] = String(blockLineCounts[line.reg[0]] || 1);
+    }
+
     result.push({
       ...line,
       id: currentId,
       lineNumber: currentId,
-      raw: `|${line.reg}|${line.fields.join('|')}|`,
+      fields: finalFields,
+      raw: `|${line.reg}|${finalFields.join('|')}|`,
     });
     currentId++;
   }
@@ -60,8 +74,9 @@ export function recalculateAllSpedTotalizers(lines: SpedLine[]): SpedLine[] {
   }
 
   // Bloco 9: 9990
-  // Quantidade de linhas do bloco 9 (9001, 9900*, 9990)
-  const block9LinesCount = 1 + allRegs.length + 1; // 9001 + 9900s + 9990
+  // Quantidade total de linhas do bloco 9 no PVA da Receita Federal:
+  // Compreende 9001 (1) + todos os registros 9900 (allRegs.length) + 9990 (1) + 9999 (1)
+  const block9LinesCount = 1 + allRegs.length + 1 + 1;
   const fields9990 = [String(block9LinesCount)];
   result.push({
     id: currentId,
@@ -90,7 +105,9 @@ export function recalculateAllSpedTotalizers(lines: SpedLine[]): SpedLine[] {
  * Efetua o download do arquivo SPED em formato TXT
  */
 export function downloadSpedTxt(lines: SpedLine[], fileName: string = 'SPED_FISCAL_AJUSTADO.txt'): void {
-  const content = lines.map(l => l.raw).join('\r\n') + '\r\n';
+  // Garante que todos os totalizadores estejam perfeitamente sincronizados antes do download
+  const syncedLines = recalculateAllSpedTotalizers(lines);
+  const content = syncedLines.map(l => l.raw).join('\r\n') + '\r\n';
   const blob = new Blob([content], { type: 'text/plain;charset=ISO-8859-1' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

@@ -137,10 +137,19 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
 
   // 4. Validação do Cadastro de Participantes (0150)
   const r0150List = regMap.get('0150') || [];
+  const participantMap = new Map<string, { cnpj?: string; cpf?: string; nome?: string; codMun?: string }>();
+
   for (const r0150 of r0150List) {
-    const codPart = r0150.fields[0];
-    const cnpj = r0150.fields[3];
-    const cpf = r0150.fields[4];
+    const codPart = (r0150.fields[0] || '').trim();
+    const nome = r0150.fields[1] || '';
+    const codPais = (r0150.fields[2] || '').trim();
+    const cnpj = (r0150.fields[3] || '').trim();
+    const cpf = (r0150.fields[4] || '').trim();
+    const codMun = (r0150.fields[6] || '').trim();
+
+    if (codPart) {
+      participantMap.set(codPart, { cnpj, cpf, nome, codMun });
+    }
 
     if (!codPart) {
       issues.push({
@@ -175,6 +184,24 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
         message: `CPF inválido no participante [${codPart}]: ${cpf}.`,
       });
     }
+
+    // Regra Oficial PVA: Campo obrigatório para contribuintes domiciliados no Brasil
+    const isBrasil = !codPais || codPais === '' || codPais === '1058';
+    if (isBrasil && (!codMun || codMun.length !== 7)) {
+      issues.push({
+        id: `0150_MUN_${r0150.lineNumber}`,
+        severity: 'ERRO',
+        code: 'REG-0150-MUN',
+        pvaRuleId: 'REGRA_0150_COD_MUN_BRASIL',
+        pvaGuidance: 'Campo obrigatório para contribuintes domiciliados no Brasil.',
+        record: '0150',
+        line: r0150.lineNumber,
+        field: 'COD_MUN',
+        message: `Campo 08 (COD_MUN) obrigatório para contribuintes domiciliados no Brasil no participante [${codPart} - ${nome}].`,
+        canFix: true,
+        fixAction: 'fix_missing_0150_municipios',
+      });
+    }
   }
 
   // 5. Validação de Itens (0200) e checagem de tipos
@@ -183,6 +210,7 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
   const itemTypeMap = new Map<string, string>(); // codItem -> tipoItem
   const usedItemCodes = new Set<string>();
   const whitespaceItemLines: number[] = [];
+  const VALID_TIPOS_ITEM = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '99'];
 
   for (const r0200 of r0200List) {
     const codItem = (r0200.fields[0] || '').trim();
@@ -193,6 +221,23 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
     if (codItem) {
       registeredItemCodes.add(codItem);
       itemTypeMap.set(codItem, tipoItem);
+    }
+
+    // Regra Oficial PVA: Campo obrigatório (TIPO_ITEM)
+    if (!tipoItem || !VALID_TIPOS_ITEM.includes(tipoItem)) {
+      issues.push({
+        id: `0200_TIPO_ITEM_${r0200.lineNumber}`,
+        severity: 'ERRO',
+        code: 'REG-0200-TIPO',
+        pvaRuleId: 'REGRA_0200_TIPO_ITEM_OBRIGATORIO',
+        pvaGuidance: 'Campo obrigatório.',
+        record: '0200',
+        line: r0200.lineNumber,
+        field: 'TIPO_ITEM',
+        message: `Campo 07 (TIPO_ITEM) obrigatório não informado no item [${codItem} - ${descrItem}].`,
+        canFix: true,
+        fixAction: 'fix_missing_tipo_item_0200',
+      });
     }
 
     if (descrItem.startsWith(' ') || descrItem.endsWith(' ') || descrItem.includes('  ')) {
@@ -253,6 +298,40 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
       canFix: true,
       fixAction: 'clean_0200',
     });
+  }
+
+  // Coleta e validação de participantes usados (0150)
+  const usedParticipants = new Set<string>();
+  for (const line of lines) {
+    if (line.reg === '0150') continue;
+    if (line.reg === 'C100' && line.fields[2]) usedParticipants.add(line.fields[2].trim());
+    if (line.reg === 'D100' && line.fields[2]) usedParticipants.add(line.fields[2].trim());
+    if (line.reg === 'C113' && line.fields[2]) usedParticipants.add(line.fields[2].trim());
+    if (line.reg === 'C140' && line.fields[0]) usedParticipants.add(line.fields[0].trim());
+    if (line.reg === 'C160' && line.fields[0]) usedParticipants.add(line.fields[0].trim());
+    if (line.reg === 'C165' && line.fields[0]) usedParticipants.add(line.fields[0].trim());
+    if (line.reg === 'H010' && line.fields[6]) usedParticipants.add(line.fields[6].trim());
+    if (line.reg === 'K200' && line.fields[4]) usedParticipants.add(line.fields[4].trim());
+  }
+
+  for (const r0150 of r0150List) {
+    const codPart = (r0150.fields[0] || '').trim();
+    const nome = r0150.fields[1] || '';
+    if (codPart && !usedParticipants.has(codPart)) {
+      issues.push({
+        id: `0150_UNUSED_${r0150.lineNumber}`,
+        severity: 'ERRO',
+        code: 'REG-0150-SEM-MOV',
+        pvaRuleId: 'REGRA_0150_SEM_MOVIMENTO',
+        pvaGuidance: 'Não informar participante, se não referenciado em pelo menos um dos demais blocos.',
+        record: '0150',
+        line: r0150.lineNumber,
+        field: '2 - COD_PART',
+        message: `Não informar participante, se não referenciado em pelo menos um dos demais blocos: [${codPart} - ${nome}].`,
+        canFix: true,
+        fixAction: 'clean_unused_0150',
+      });
+    }
   }
 
   // ========================================================================
@@ -534,6 +613,30 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
           }
         }
       }
+
+      // Regra Oficial PVA: Alíquota de ICMS em documento de entrada (Simples Nacional / CST 102/02)
+      for (const c170 of c170List) {
+        const cst = (c170.fields[8] || '').trim();
+        const aliqIcms = parseFloatSped(c170.fields[12]);
+        const numItem = c170.fields[0] || '';
+
+        if (indOper === '0' && (cst.endsWith('02') || cst.endsWith('15')) && aliqIcms <= 0) {
+          issues.push({
+            id: `C170_ALIQ_SIMPLES_${c170.lineNumber}`,
+            severity: 'ADVERTENCIA',
+            code: 'REG-C170-ALIQ-SIMPLES',
+            pvaRuleId: 'REGRA_ALIQ_ICMS_C170_SIMPLES',
+            pvaGuidance:
+              'Contribuintes optantes pelo Simples Nacional devem desconsiderar essa advertência. Se o campo IND_OPER do registro C100 for igual a 0(zero) e se os dois últimos caracteres do CST_ICMS forem 02 ou 15, o campo ALIQ_ICMS deve ser maior que 0 (zero).',
+            record: 'C170',
+            line: c170.lineNumber,
+            field: '14 - ALIQ_ICMS',
+            message: `Contribuintes optantes pelo Simples Nacional devem desconsiderar essa advertência. Se o campo IND_OPER do registro C100 for igual a 0(zero) e se os dois últimos caracteres do CST_ICMS forem 02 ou 15, o campo ALIQ_ICMS deve ser maior que 0 (zero). Item [${numItem}] com CST ${cst}.`,
+            canFix: true,
+            fixAction: 'normalize_simples_cst102',
+          });
+        }
+      }
     }
   };
 
@@ -562,6 +665,78 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
 
   if (currentC100Line) {
     validateInvoiceWithPvaRules(currentC100Line, currentC170s, currentC190s);
+  }
+
+  // ========================================================================
+  // 6.5. VALIDAÇÃO OFICIAL PVA - BLOCO D (CONHECIMENTOS DE TRANSPORTE - D100)
+  // ========================================================================
+  const rD100List = regMap.get('D100') || [];
+  for (const rD100 of rD100List) {
+    const indOper = (rD100.fields[0] || '').trim();
+    const codPart = (rD100.fields[2] || '').trim();
+    const codMod = (rD100.fields[3] || '').trim();
+    const numDoc = rD100.fields[7] || '';
+    const chvCte = (rD100.fields[8] || '').trim();
+    const codMunOrig = (rD100.fields[22] || '').trim();
+    const codMunDest = (rD100.fields[23] || '').trim();
+
+    // Regra Oficial PVA: Para documentos de entrada (IND_OPER=0), o preenchimento do campo é obrigatório se "COD_MOD" for igual a "57", "63" ou "67".
+    if (indOper === '0' && ['57', '63', '67'].includes(codMod)) {
+      if (!codMunOrig || codMunOrig.length !== 7) {
+        issues.push({
+          id: `D100_MUN_ORIG_${rD100.lineNumber}`,
+          severity: 'ERRO',
+          code: 'REG-D100-MUN-ORIG',
+          pvaRuleId: 'REGRA_D100_MUNICIPIOS_OBRIGATORIOS',
+          pvaGuidance: 'Para documentos de entrada (IND_OPER=0), o preenchimento do campo é obrigatório se "COD_MOD" for igual a "57", "63" ou "67".',
+          record: 'D100',
+          line: rD100.lineNumber,
+          field: '24 - COD_MUN_ORIG',
+          message: `Campo 24 (COD_MUN_ORIG) obrigatório não informado no CT-e [${numDoc}].`,
+          canFix: true,
+          fixAction: 'fix_missing_d100_municipios',
+        });
+      }
+
+      if (!codMunDest || codMunDest.length !== 7) {
+        issues.push({
+          id: `D100_MUN_DEST_${rD100.lineNumber}`,
+          severity: 'ERRO',
+          code: 'REG-D100-MUN-DEST',
+          pvaRuleId: 'REGRA_D100_MUNICIPIOS_OBRIGATORIOS',
+          pvaGuidance: 'Para documentos de entrada (IND_OPER=0), o preenchimento do campo é obrigatório se "COD_MOD" for igual a "57", "63" ou "67".',
+          record: 'D100',
+          line: rD100.lineNumber,
+          field: '25 - COD_MUN_DEST',
+          message: `Campo 25 (COD_MUN_DEST) obrigatório não informado no CT-e [${numDoc}].`,
+          canFix: true,
+          fixAction: 'fix_missing_d100_municipios',
+        });
+      }
+    }
+
+    // Regra Oficial PVA: O CNPJ/CPF da chave do documento eletrônico não confere com o CNPJ/CPF do participante informado.
+    if (chvCte.length === 44) {
+      const cnpjChave = chvCte.substring(6, 20);
+      const partInfo = participantMap.get(codPart);
+      const cnpjPart = partInfo?.cnpj || '';
+
+      if (cnpjPart && cnpjChave !== cnpjPart) {
+        issues.push({
+          id: `D100_CHV_PART_${rD100.lineNumber}`,
+          severity: 'ERRO',
+          code: 'REG-D100-CHV-PART',
+          pvaRuleId: 'REGRA_D100_CNPJ_CHAVE_PARTICIPANTE',
+          pvaGuidance: 'O CNPJ/CPF da chave do documento eletrônico não confere com o CNPJ/CPF do participante informado.',
+          record: 'D100',
+          line: rD100.lineNumber,
+          field: '10 - CHV_CTE',
+          message: `O CNPJ da chave (${cnpjChave}) não confere com o participante [${codPart} - ${partInfo?.nome || ''}] informado no CT-e [${numDoc}].`,
+          canFix: true,
+          fixAction: 'fix_d100_participant_mismatch',
+        });
+      }
+    }
   }
 
   // ========================================================================
@@ -1205,6 +1380,79 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
   }
   if (currentK290) {
     checkK290WithPvaRules(currentK290, currentK291Codes, currentK292List);
+  }
+
+  // ========================================================================
+  // 9. VALIDAÇÃO OFICIAL PVA - TOTALIZADORES DE BLOCO E ENCERRAMENTO
+  // ========================================================================
+  const blockTotalizerSpecs: Array<{ reg: string; block: string }> = [
+    { reg: '0990', block: '0' },
+    { reg: 'B990', block: 'B' },
+    { reg: 'C990', block: 'C' },
+    { reg: 'D990', block: 'D' },
+    { reg: 'E990', block: 'E' },
+    { reg: 'G990', block: 'G' },
+    { reg: 'H990', block: 'H' },
+    { reg: 'K990', block: 'K' },
+    { reg: '1990', block: '1' },
+    { reg: '9990', block: '9' },
+  ];
+
+  const actualBlockCounts: Record<string, number> = {};
+  for (const l of lines) {
+    const b = l.reg[0];
+    actualBlockCounts[b] = (actualBlockCounts[b] || 0) + 1;
+  }
+
+  for (const spec of blockTotalizerSpecs) {
+    const totLine = regMap.get(spec.reg)?.[0];
+    if (totLine) {
+      const reportedQty = parseInt(totLine.fields[0] || '0', 10);
+      const expectedQty = actualBlockCounts[spec.block] || 0;
+      if (reportedQty !== expectedQty) {
+        issues.push({
+          id: `TOTALIZER_${spec.reg}`,
+          severity: 'ERRO',
+          code: `REG-${spec.reg}-QTY`,
+          pvaRuleId: `REGRA_QTD_LIN_${spec.block}`,
+          pvaGuidance: `A quantidade de linhas do bloco ${spec.block} deve ser igual ao total de registros existentes no bloco.`,
+          record: spec.reg,
+          line: totLine.lineNumber,
+          field: `2 - QTD_LIN_${spec.block}`,
+          message: `Quantidade de linhas do bloco ${spec.block} informada (${reportedQty}) não confere com a esperada pelo sistema (${expectedQty}).`,
+          difference: {
+            expected: expectedQty,
+            found: reportedQty,
+            fieldName: `QTD_LIN_${spec.block}`,
+          },
+        });
+      }
+    }
+  }
+
+  // 9999: total geral de linhas
+  const r9999 = regMap.get('9999')?.[0];
+  if (r9999) {
+    const reportedTotal = parseInt(r9999.fields[0] || '0', 10);
+    const expectedTotal = lines.length;
+    if (reportedTotal !== expectedTotal) {
+      issues.push({
+        id: 'TOTALIZER_9999',
+        severity: 'ERRO',
+        code: 'REG-9999-QTY',
+        pvaRuleId: 'REGRA_QTD_LIN_TOTAL',
+        pvaGuidance: 'O campo QTD_LIN deve ser igual ao total de linhas existentes em todo o arquivo SPED.',
+        record: '9999',
+        line: r9999.lineNumber,
+        field: '2 - QTD_LIN',
+        message: `Quantidade total de linhas do arquivo informada (${reportedTotal}) não confere com a esperada pelo sistema (${expectedTotal}).`,
+        difference: {
+          expected: expectedTotal,
+          found: reportedTotal,
+          fieldName: 'QTD_LIN',
+        },
+      });
+    }
   }
 
   return issues;

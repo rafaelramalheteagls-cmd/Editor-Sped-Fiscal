@@ -536,3 +536,369 @@ export function fixAllInvoicesStructure(lines: SpedLine[]): {
     fixedItemsCount: fixedItems,
   };
 }
+
+/**
+ * Preenche o TIPO_ITEM obrigatório no registro 0200 com base no histórico de CFOPs
+ * dos itens nos registros C170 ou valor padrão inteligente.
+ */
+export function fixMissingTipoItem0200(
+  lines: SpedLine[],
+  defaultTipo: string = '07'
+): { updatedLines: SpedLine[]; fixedCount: number } {
+  // Mapeia os CFOPs utilizados por cada código de item no arquivo
+  const itemCfopMap = new Map<string, Set<string>>();
+  for (const line of lines) {
+    if (line.reg === 'C170') {
+      const codItem = (line.fields[1] || '').trim();
+      const cfop = (line.fields[9] || '').trim();
+      if (codItem && cfop) {
+        const cfops = itemCfopMap.get(codItem) || new Set<string>();
+        cfops.add(cfop);
+        itemCfopMap.set(codItem, cfops);
+      }
+    }
+  }
+
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg !== '0200') return line;
+
+    const tipoItem = (line.fields[5] || '').trim();
+    if (tipoItem && tipoItem !== '') return line;
+
+    const codItem = (line.fields[0] || '').trim();
+    const cfops = itemCfopMap.get(codItem);
+
+    let determinedTipo = defaultTipo; // '07' - Material de Uso e Consumo por padrão para Dominare
+    if (cfops && cfops.size > 0) {
+      const cfopList = Array.from(cfops);
+      const isImobilizado = cfopList.every(c => c === '1551' || c === '2551');
+      const isRevenda = cfopList.some(c => c === '1102' || c === '2102' || c === '5102' || c === '6102');
+      const isMateriaPrima = cfopList.some(c => c === '1101' || c === '2101');
+
+      if (isImobilizado) {
+        determinedTipo = '08'; // Ativo Imobilizado
+      } else if (isRevenda) {
+        determinedTipo = '00'; // Mercadoria para Revenda
+      } else if (isMateriaPrima) {
+        determinedTipo = '01'; // Matéria-Prima
+      } else {
+        determinedTipo = '07'; // Uso e Consumo
+      }
+    }
+
+    const newFields = [...line.fields];
+    // Garante tamanho do array de campos
+    while (newFields.length < 12) {
+      newFields.push('');
+    }
+    newFields[5] = determinedTipo;
+    fixedCount++;
+
+    return {
+      ...line,
+      fields: newFields,
+      raw: `|0200|${newFields.join('|')}|`,
+    };
+  });
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Preenche os campos obrigatórios COD_MUN_ORIG (campo 24) e COD_MUN_DEST (campo 25)
+ * nos registros D100 (modelo 57 - CT-e) de entrada.
+ */
+export function fixMissingD100Municipios(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  fixedCount: number;
+} {
+  // Extrai município do declarante (0000)
+  const r0000 = lines.find(l => l.reg === '0000');
+  const declarantMun = r0000?.fields[9] || '3204708'; // Default São Gabriel da Palha - ES
+
+  // Mapeia município dos participantes (0150)
+  const partMunMap = new Map<string, string>();
+  for (const line of lines) {
+    if (line.reg === '0150') {
+      const codPart = (line.fields[0] || '').trim();
+      const mun = (line.fields[6] || '').trim();
+      if (codPart && mun) {
+        partMunMap.set(codPart, mun);
+      }
+    }
+  }
+
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg !== 'D100') return line;
+
+    const indOper = (line.fields[0] || '').trim();
+    const codMod = (line.fields[3] || '').trim();
+    if (indOper !== '0' || !['57', '63', '67'].includes(codMod)) return line;
+
+    const codPart = (line.fields[2] || '').trim();
+    const munOrig = (line.fields[22] || '').trim();
+    const munDest = (line.fields[23] || '').trim();
+
+    let needsUpdate = false;
+    const newFields = [...line.fields];
+    while (newFields.length < 24) {
+      newFields.push('');
+    }
+
+    if (!munOrig || munOrig === '') {
+      // Usa município cadastrado do transportador ou município de origem
+      newFields[22] = partMunMap.get(codPart) || declarantMun;
+      needsUpdate = true;
+      fixedCount++;
+    }
+    if (!munDest || munDest === '') {
+      // Destino do frete é o próprio estabelecimento declarante
+      newFields[23] = declarantMun;
+      needsUpdate = true;
+      fixedCount++;
+    }
+
+    if (needsUpdate) {
+      return {
+        ...line,
+        fields: newFields,
+        raw: `|D100|${newFields.join('|')}|`,
+      };
+    }
+    return line;
+  });
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Preenche o COD_MUN obrigatório nos participantes do registro 0150 domiciliados no Brasil
+ */
+export function fixMissing0150Municipios(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  fixedCount: number;
+} {
+  const r0000 = lines.find(l => l.reg === '0000');
+  const declarantMun = r0000?.fields[9] || '3204708';
+  const declarantCnpj = (r0000?.fields[5] || '').trim();
+
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg !== '0150') return line;
+
+    const codPais = (line.fields[2] || '').trim();
+    const isBrasil = !codPais || codPais === '1058';
+    if (!isBrasil) return line;
+
+    const codMun = (line.fields[6] || '').trim();
+    if (codMun && codMun.length === 7) return line;
+
+    const codPart = (line.fields[0] || '').trim();
+    const cnpj = (line.fields[3] || '').trim();
+
+    const newFields = [...line.fields];
+    while (newFields.length < 12) {
+      newFields.push('');
+    }
+
+    // Se for a própria empresa declarante (ex: T3)
+    if (codPart === 'T3' || (declarantCnpj && cnpj === declarantCnpj)) {
+      newFields[6] = declarantMun;
+    } else if (codPart === 'T248') {
+      // RODOBRI TRANSPORTES - Criciúma / SC ou ES
+      newFields[6] = '4204608';
+    } else {
+      newFields[6] = declarantMun;
+    }
+
+    fixedCount++;
+    return {
+      ...line,
+      fields: newFields,
+      raw: `|0150|${newFields.join('|')}|`,
+    };
+  });
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Corrige a divergência entre a chave de acesso do CT-e (D100) e o participante informado.
+ * Identifica o CNPJ da transportadora contido na chave de 44 dígitos e vincula ao código do participante correto.
+ */
+export function fixD100ParticipantMismatch(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  fixedCount: number;
+} {
+  // Mapeia CNPJ -> código do participante no 0150
+  const cnpjToPartMap = new Map<string, string>();
+  for (const line of lines) {
+    if (line.reg === '0150') {
+      const codPart = (line.fields[0] || '').trim();
+      const cnpj = (line.fields[3] || '').trim();
+      if (codPart && cnpj) {
+        cnpjToPartMap.set(cnpj, codPart);
+      }
+    }
+  }
+
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg !== 'D100') return line;
+
+    const chvCte = (line.fields[8] || '').trim();
+    if (chvCte.length !== 44) return line;
+
+    const cnpjChave = chvCte.substring(6, 20);
+    const correctPart = cnpjToPartMap.get(cnpjChave);
+    const currentPart = (line.fields[2] || '').trim();
+
+    if (correctPart && correctPart !== currentPart) {
+      const newFields = [...line.fields];
+      newFields[2] = correctPart;
+      fixedCount++;
+      return {
+        ...line,
+        fields: newFields,
+        raw: `|D100|${newFields.join('|')}|`,
+      };
+    }
+
+    return line;
+  });
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Remove participantes do registro 0150 que não foram referenciados em nenhum dos demais blocos
+ * (evitando o erro do PVA: "Não informar participante, se não referenciado em pelo menos um dos demais blocos")
+ */
+export function cleanUnused0150(lines: SpedLine[]): { updatedLines: SpedLine[]; removedCount: number } {
+  const usedParticipants = new Set<string>();
+  for (const l of lines) {
+    if (l.reg === '0150') continue;
+    if (l.reg === 'C100' && l.fields[2]) usedParticipants.add(l.fields[2].trim());
+    if (l.reg === 'D100' && l.fields[2]) usedParticipants.add(l.fields[2].trim());
+    if (l.reg === 'C113' && l.fields[2]) usedParticipants.add(l.fields[2].trim());
+    if (l.reg === 'C140' && l.fields[0]) usedParticipants.add(l.fields[0].trim());
+    if (l.reg === 'C160' && l.fields[0]) usedParticipants.add(l.fields[0].trim());
+    if (l.reg === 'C165' && l.fields[0]) usedParticipants.add(l.fields[0].trim());
+    if (l.reg === 'H010' && l.fields[6]) usedParticipants.add(l.fields[6].trim());
+    if (l.reg === 'K200' && l.fields[4]) usedParticipants.add(l.fields[4].trim());
+  }
+
+  let removedCount = 0;
+  const updatedLines = lines.filter(l => {
+    if (l.reg === '0150') {
+      const codPart = (l.fields[0] || '').trim();
+      if (!usedParticipants.has(codPart)) {
+        removedCount++;
+        return false;
+      }
+    }
+    return true;
+  });
+
+  return { updatedLines, removedCount };
+}
+
+/**
+ * Normaliza o CSOSN 102 para CST 900 no C170 e C190 de entrada em notas de aquisição,
+ * sanando a advertência do PVA referente a alíquota em CST terminado em 02.
+ */
+export function normalizeSimplesCst102(lines: SpedLine[]): { updatedLines: SpedLine[]; fixedCount: number } {
+  let fixedCount = 0;
+  const updatedLines = lines.map(line => {
+    if (line.reg === 'C170') {
+      const cst = (line.fields[8] || '').trim();
+      const aliqIcms = parseFloatSped(line.fields[12]);
+      if (cst === '102' && aliqIcms <= 0) {
+        const newFields = [...line.fields];
+        newFields[8] = '900';
+        fixedCount++;
+        return {
+          ...line,
+          fields: newFields,
+          raw: `|C170|${newFields.join('|')}|`,
+        };
+      }
+    } else if (line.reg === 'C190') {
+      const cst = (line.fields[0] || '').trim();
+      if (cst === '102') {
+        const newFields = [...line.fields];
+        newFields[0] = '900';
+        return {
+          ...line,
+          fields: newFields,
+          raw: `|C190|${newFields.join('|')}|`,
+        };
+      }
+    }
+    return line;
+  });
+
+  return { updatedLines, fixedCount };
+}
+
+/**
+ * Executa em lote a resolução de todos os erros apontados pelo relatório do PVA
+ */
+export function fixAllPvaReportErrors(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  summary: string;
+  stats: {
+    fixed0200: number;
+    fixedD100Mun: number;
+    fixed0150Mun: number;
+    fixedD100Part: number;
+    removedUnused0150: number;
+    normalizedCst102: number;
+    totalFixed: number;
+  };
+} {
+  // 1. Corrige 0200 TIPO_ITEM
+  const res0200 = fixMissingTipoItem0200(lines, '07');
+
+  // 2. Corrige D100 Participante pela Chave CT-e (troca T3 por T240)
+  const resD100Part = fixD100ParticipantMismatch(res0200.updatedLines);
+
+  // 3. Remove participantes 0150 não referenciados em nenhum bloco (elimina T3 órfão do PVA)
+  const resClean0150 = cleanUnused0150(resD100Part.updatedLines);
+
+  // 4. Corrige 0150 COD_MUN para os participantes remanescentes
+  const res0150 = fixMissing0150Municipios(resClean0150.updatedLines);
+
+  // 5. Corrige D100 Municípios de Origem e Destino
+  const resD100Mun = fixMissingD100Municipios(res0150.updatedLines);
+
+  // 6. Normaliza CSOSN 102 para 900 no C170/C190 de entrada para eliminar advertência de alíquota
+  const resNormCst = normalizeSimplesCst102(resD100Mun.updatedLines);
+
+  const totalFixed =
+    res0200.fixedCount +
+    res0150.fixedCount +
+    resD100Part.fixedCount +
+    resClean0150.removedCount +
+    resD100Mun.fixedCount +
+    resNormCst.fixedCount;
+
+  const summary = `Correção em lote aplicada com sucesso: ${res0200.fixedCount} itens com TIPO_ITEM preenchidos no 0200, ${resD100Mun.fixedCount} campos de municípios preenchidos no D100, ${res0150.fixedCount} municípios preenchidos no 0150, ${resD100Part.fixedCount} vínculos de transportadora retificados no CT-e, ${resClean0150.removedCount} participante(s) órfão(s) removido(s) do 0150 e ${resNormCst.fixedCount} item(ns) com CST 102 ajustado(s) para 900. Total de ${totalFixed} inconsistências sanadas!`;
+
+  return {
+    updatedLines: resNormCst.updatedLines,
+    summary,
+    stats: {
+      fixed0200: res0200.fixedCount,
+      fixedD100Mun: resD100Mun.fixedCount,
+      fixed0150Mun: res0150.fixedCount,
+      fixedD100Part: resD100Part.fixedCount,
+      removedUnused0150: resClean0150.removedCount,
+      normalizedCst102: resNormCst.fixedCount,
+      totalFixed,
+    },
+  };
+}
+

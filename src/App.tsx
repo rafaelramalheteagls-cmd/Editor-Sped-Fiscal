@@ -33,7 +33,17 @@ import { CteImportModal } from './components/CteImportModal';
 import { InventoryAdjustModal } from './components/InventoryAdjustModal';
 import { PdfReportModal } from './components/PdfReportModal';
 import { IcmsCstAdjustModal } from './components/IcmsCstAdjustModal';
-import { FiscalSyncResult, fixAllInvoicesStructure } from './lib/spedFiscalSync';
+import { 
+  FiscalSyncResult, 
+  fixAllInvoicesStructure,
+  fixMissingTipoItem0200,
+  fixMissingD100Municipios,
+  fixMissing0150Municipios,
+  fixD100ParticipantMismatch,
+  cleanUnused0150,
+  normalizeSimplesCst102,
+  fixAllPvaReportErrors
+} from './lib/spedFiscalSync';
 
 export const App: React.FC = () => {
   const [lines, setLines] = useState<SpedLine[]>([]);
@@ -350,6 +360,76 @@ export const App: React.FC = () => {
     }
   };
 
+  // PVA Fix: 0200 missing TIPO_ITEM
+  const handleFixMissingTipoItem0200 = () => {
+    const { updatedLines, fixedCount } = fixMissingTipoItem0200(lines, '07');
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `TIPO_ITEM preenchido em ${fixedCount} produto(s) do registro 0200.`);
+    } else {
+      showToast('Todos os itens do registro 0200 já possuem TIPO_ITEM preenchido.', 'info');
+    }
+  };
+
+  // PVA Fix: D100 missing COD_MUN_ORIG / COD_MUN_DEST
+  const handleFixMissingD100Municipios = () => {
+    const { updatedLines, fixedCount } = fixMissingD100Municipios(lines);
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `Municípios de origem e destino preenchidos em ${fixedCount} campo(s) de CT-e (D100).`);
+    } else {
+      showToast('Todos os CT-es (D100) já possuem municípios de transporte preenchidos.', 'info');
+    }
+  };
+
+  // PVA Fix: 0150 missing COD_MUN
+  const handleFixMissing0150Municipios = () => {
+    const { updatedLines, fixedCount } = fixMissing0150Municipios(lines);
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `Código IBGE de município preenchido em ${fixedCount} participante(s) (0150).`);
+    } else {
+      showToast('Todos os participantes (0150) já possuem código de município informado.', 'info');
+    }
+  };
+
+  // PVA Fix: D100 participant mismatch from CT-e key
+  const handleFixD100ParticipantMismatch = () => {
+    const { updatedLines, fixedCount } = fixD100ParticipantMismatch(lines);
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `Vínculo de transportadora corrigido em ${fixedCount} CT-e(s) (D100) a partir da chave.`);
+    } else {
+      showToast('Todos os participantes de CT-e (D100) conferem com o CNPJ da chave.', 'info');
+    }
+  };
+
+  // PVA Fix: Clean unused 0150 participants
+  const handleCleanUnused0150 = () => {
+    const { updatedLines, removedCount } = cleanUnused0150(lines);
+    if (removedCount > 0) {
+      commitLines(updatedLines, `${removedCount} participante(s) sem movimentação removido(s) do registro 0150.`);
+    } else {
+      showToast('Todos os participantes do registro 0150 possuem movimentação.', 'info');
+    }
+  };
+
+  // PVA Fix: Normalize Simples CST 102 to 900
+  const handleNormalizeSimplesCst102 = () => {
+    const { updatedLines, fixedCount } = normalizeSimplesCst102(lines);
+    if (fixedCount > 0) {
+      commitLines(updatedLines, `${fixedCount} item(ns) com CST 102 ajustados para CST 900.`);
+    } else {
+      showToast('Nenhum item com CST 102 pendente de ajuste.', 'info');
+    }
+  };
+
+  // PVA Fix: All PVA 257 errors batch fix
+  const handleFixAllPvaReportErrors = () => {
+    const { updatedLines, summary, stats } = fixAllPvaReportErrors(lines);
+    if (stats.totalFixed > 0) {
+      commitLines(updatedLines, summary);
+    } else {
+      showToast('Nenhuma pendência do PVA pendente de correção automática encontrada.', 'info');
+    }
+  };
+
   // Import CT-e XML
   const handleImportCte = (cte: CteData) => {
     try {
@@ -591,6 +671,13 @@ export const App: React.FC = () => {
               onFixWhitespace0200={handleFixWhitespace0200}
               onCleanUnused0200={handleCleanUnused0200}
               onFixInvoiceStructure={handleFixInvoiceStructure}
+              onFixMissingTipoItem0200={handleFixMissingTipoItem0200}
+              onFixMissingD100Municipios={handleFixMissingD100Municipios}
+              onFixMissing0150Municipios={handleFixMissing0150Municipios}
+              onFixD100ParticipantMismatch={handleFixD100ParticipantMismatch}
+              onCleanUnused0150={handleCleanUnused0150}
+              onNormalizeSimplesCst102={handleNormalizeSimplesCst102}
+              onFixAllPvaReportErrors={handleFixAllPvaReportErrors}
               onNavigateToRecord={handleNavigateToRecord}
             />
           )}
