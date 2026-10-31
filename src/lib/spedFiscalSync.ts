@@ -834,12 +834,226 @@ export function cleanUnused0150(lines: SpedLine[]): { updatedLines: SpedLine[]; 
 }
 
 /**
+ * Consolida registros C190 duplicados pertencentes ao mesmo documento fiscal C100.
+ * No SPED Fiscal da EFD-ICMS/IPI, a chave primária do C190 é (CST_ICMS, CFOP, ALIQ_ICMS).
+ * Múltiplas ocorrências com a mesma chave sob a mesma nota são proibidas pelo PVA (REGRA_C190_DUPLICIDADE_CHAVE).
+ * Os registros duplicados são unificados somando-se os valores de VL_OPR, VL_BC_ICMS, VL_ICMS,
+ * VL_BC_ICMS_ST, VL_ICMS_ST, VL_RED_BC e VL_IPI.
+ */
+export function consolidateDuplicateC190(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  mergedCount: number;
+} {
+  let mergedCount = 0;
+  const result: SpedLine[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.reg === 'C100') {
+      result.push(line);
+      i++;
+
+      const noteLines: SpedLine[] = [];
+      while (i < lines.length) {
+        const sub = lines[i];
+        if (sub.reg === 'C100' || !sub.reg.startsWith('C')) {
+          break;
+        }
+        noteLines.push(sub);
+        i++;
+      }
+
+      const nonC190LinesBefore: SpedLine[] = [];
+      const c190Lines: SpedLine[] = [];
+      const nonC190LinesAfter: SpedLine[] = [];
+      let pastC190 = false;
+
+      for (const nl of noteLines) {
+        if (nl.reg === 'C190') {
+          c190Lines.push(nl);
+          pastC190 = true;
+        } else if (!pastC190) {
+          nonC190LinesBefore.push(nl);
+        } else {
+          nonC190LinesAfter.push(nl);
+        }
+      }
+
+      if (c190Lines.length <= 1) {
+        noteLines.forEach(l => result.push(l));
+      } else {
+        const c190GroupMap = new Map<string, SpedLine>();
+        const consolidatedC190s: SpedLine[] = [];
+
+        for (const c190 of c190Lines) {
+          const cst = (c190.fields[0] || '').trim();
+          const cfop = (c190.fields[1] || '').trim();
+          const aliqVal = parseFloatSped(c190.fields[2]);
+          const aliq = formatFloatSped(aliqVal);
+          const key = `${cst}|${cfop}|${aliq}`;
+
+          if (!c190GroupMap.has(key)) {
+            c190GroupMap.set(key, c190);
+            consolidatedC190s.push(c190);
+          } else {
+            mergedCount++;
+            const existing = c190GroupMap.get(key)!;
+            const existingFields = [...existing.fields];
+
+            while (existingFields.length < 11) existingFields.push('');
+            const dupFields = [...c190.fields];
+            while (dupFields.length < 11) dupFields.push('');
+
+            // Soma campos numéricos:
+            // 3: VL_OPR, 4: VL_BC_ICMS, 5: VL_ICMS, 6: VL_BC_ICMS_ST, 7: VL_ICMS_ST, 8: VL_RED_BC, 9: VL_IPI
+            for (let fIdx = 3; fIdx <= 9; fIdx++) {
+              const val1 = parseFloatSped(existingFields[fIdx]);
+              const val2 = parseFloatSped(dupFields[fIdx]);
+              const sum = Math.round((val1 + val2) * 100) / 100;
+              existingFields[fIdx] = formatFloatSped(sum);
+            }
+
+            if (!existingFields[10] && dupFields[10]) {
+              existingFields[10] = dupFields[10];
+            }
+
+            existing.fields = existingFields;
+            existing.raw = `|C190|${existingFields.join('|')}|`;
+          }
+        }
+
+        nonC190LinesBefore.forEach(l => result.push(l));
+        consolidatedC190s.forEach(l => result.push(l));
+        nonC190LinesAfter.forEach(l => result.push(l));
+      }
+    } else {
+      result.push(line);
+      i++;
+    }
+  }
+
+  const updatedLines = mergedCount > 0
+    ? result.map((l, idx) => ({ ...l, lineNumber: idx + 1 }))
+    : result;
+
+  return { updatedLines, mergedCount };
+}
+
+/**
+ * Consolida registros D190 duplicados pertencentes ao mesmo documento de transporte D100.
+ * A chave do D190 é (CST_ICMS, CFOP, ALIQ_ICMS).
+ */
+export function consolidateDuplicateD190(lines: SpedLine[]): {
+  updatedLines: SpedLine[];
+  mergedCount: number;
+} {
+  let mergedCount = 0;
+  const result: SpedLine[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.reg === 'D100') {
+      result.push(line);
+      i++;
+
+      const docLines: SpedLine[] = [];
+      while (i < lines.length) {
+        const sub = lines[i];
+        if (sub.reg === 'D100' || !sub.reg.startsWith('D')) {
+          break;
+        }
+        docLines.push(sub);
+        i++;
+      }
+
+      const nonD190Before: SpedLine[] = [];
+      const d190Lines: SpedLine[] = [];
+      const nonD190After: SpedLine[] = [];
+      let pastD190 = false;
+
+      for (const dl of docLines) {
+        if (dl.reg === 'D190') {
+          d190Lines.push(dl);
+          pastD190 = true;
+        } else if (!pastD190) {
+          nonD190Before.push(dl);
+        } else {
+          nonD190After.push(dl);
+        }
+      }
+
+      if (d190Lines.length <= 1) {
+        docLines.forEach(l => result.push(l));
+      } else {
+        const d190GroupMap = new Map<string, SpedLine>();
+        const consolidatedD190s: SpedLine[] = [];
+
+        for (const d190 of d190Lines) {
+          const cst = (d190.fields[0] || '').trim();
+          const cfop = (d190.fields[1] || '').trim();
+          const aliqVal = parseFloatSped(d190.fields[2]);
+          const aliq = formatFloatSped(aliqVal);
+          const key = `${cst}|${cfop}|${aliq}`;
+
+          if (!d190GroupMap.has(key)) {
+            d190GroupMap.set(key, d190);
+            consolidatedD190s.push(d190);
+          } else {
+            mergedCount++;
+            const existing = d190GroupMap.get(key)!;
+            const existingFields = [...existing.fields];
+            while (existingFields.length < 8) existingFields.push('');
+            const dupFields = [...d190.fields];
+            while (dupFields.length < 8) dupFields.push('');
+
+            for (let fIdx = 3; fIdx <= 6; fIdx++) {
+              const val1 = parseFloatSped(existingFields[fIdx]);
+              const val2 = parseFloatSped(dupFields[fIdx]);
+              const sum = Math.round((val1 + val2) * 100) / 100;
+              existingFields[fIdx] = formatFloatSped(sum);
+            }
+            if (!existingFields[7] && dupFields[7]) {
+              existingFields[7] = dupFields[7];
+            }
+
+            existing.fields = existingFields;
+            existing.raw = `|D190|${existingFields.join('|')}|`;
+          }
+        }
+
+        nonD190Before.forEach(l => result.push(l));
+        consolidatedD190s.forEach(l => result.push(l));
+        nonD190After.forEach(l => result.push(l));
+      }
+    } else {
+      result.push(line);
+      i++;
+    }
+  }
+
+  const updatedLines = mergedCount > 0
+    ? result.map((l, idx) => ({ ...l, lineNumber: idx + 1 }))
+    : result;
+
+  return { updatedLines, mergedCount };
+}
+
+/**
  * Normaliza o CSOSN 102 para CST 900 no C170 e C190 de entrada em notas de aquisição,
  * sanando a advertência do PVA referente a alíquota em CST terminado em 02.
+ * Imediatamente consolida quaisquer registros C190 que ficarem com a mesma chave (CST, CFOP, ALIQ).
  */
-export function normalizeSimplesCst102(lines: SpedLine[]): { updatedLines: SpedLine[]; fixedCount: number } {
+export function normalizeSimplesCst102(lines: SpedLine[]): { 
+  updatedLines: SpedLine[]; 
+  fixedCount: number;
+  mergedDuplicates: number;
+} {
   let fixedCount = 0;
-  const updatedLines = lines.map(line => {
+  const mappedLines = lines.map(line => {
     if (line.reg === 'C170') {
       const cst = (line.fields[8] || '').trim();
       const aliqIcms = parseFloatSped(line.fields[12]);
@@ -868,7 +1082,14 @@ export function normalizeSimplesCst102(lines: SpedLine[]): { updatedLines: SpedL
     return line;
   });
 
-  return { updatedLines, fixedCount };
+  // Consolida duplicidades de C190 geradas pela conversão de 102 para 900
+  const consolidated = consolidateDuplicateC190(mappedLines);
+
+  return { 
+    updatedLines: consolidated.updatedLines, 
+    fixedCount,
+    mergedDuplicates: consolidated.mergedCount 
+  };
 }
 
 /**
@@ -993,6 +1214,8 @@ export function fixAllPvaReportErrors(lines: SpedLine[]): {
     fixedD100Part: number;
     removedUnused0150: number;
     normalizedCst102: number;
+    consolidatedC190: number;
+    consolidatedD190: number;
     fixedC190VlOpr: number;
     fixedWhitespace: number;
     totalFixed: number;
@@ -1004,38 +1227,50 @@ export function fixAllPvaReportErrors(lines: SpedLine[]): {
   // 2. Corrige D100 Participante pela Chave CT-e (incluindo atualização de filial em 0150)
   const resD100Part = fixD100ParticipantMismatch(res0200.updatedLines);
 
-  // 3. Corrige C190 VL_OPR divergente de C100 VL_DOC
-  const resC190Opr = fixC190VlOprBalance(resD100Part.updatedLines);
+  // 3. Remove participantes 0150 não referenciados em nenhum bloco
+  const resClean0150 = cleanUnused0150(resD100Part.updatedLines);
 
-  // 4. Remove participantes 0150 não referenciados em nenhum bloco
-  const resClean0150 = cleanUnused0150(resC190Opr.updatedLines);
-
-  // 5. Corrige 0150 COD_MUN para os participantes remanescentes
+  // 4. Corrige 0150 COD_MUN para os participantes remanescentes
   const res0150 = fixMissing0150Municipios(resClean0150.updatedLines);
 
-  // 6. Corrige D100 Municípios de Origem e Destino
+  // 5. Corrige D100 Municípios de Origem e Destino
   const resD100Mun = fixMissingD100Municipios(res0150.updatedLines);
 
-  // 7. Normaliza CSOSN 102 para 900 no C170/C190 de entrada
+  // 6. Normaliza CSOSN 102 para 900 no C170/C190 de entrada
   const resNormCst = normalizeSimplesCst102(resD100Mun.updatedLines);
 
-  // 8. Limpa espaços no 0200
-  const resWs = fixWhitespace0200(resNormCst.updatedLines);
+  // 7. Consolida registros C190 duplicados pertencentes ao mesmo documento C100 (chave CST, CFOP, ALIQ)
+  const resConsolC190 = consolidateDuplicateC190(resNormCst.updatedLines);
 
-  // 9. Recalcula todos os totalizadores para garantir que contadores (0990, 9900, 9990, 9999) fiquem 100% perfeitos
+  // 8. Consolida registros D190 duplicados pertencentes ao mesmo documento D100 (chave CST, CFOP, ALIQ)
+  const resConsolD190 = consolidateDuplicateD190(resConsolC190.updatedLines);
+
+  // 9. Corrige C190 VL_OPR divergente de C100 VL_DOC
+  const resC190Opr = fixC190VlOprBalance(resConsolD190.updatedLines);
+
+  // 10. Limpa espaços no 0200
+  const resWs = fixWhitespace0200(resC190Opr.updatedLines);
+
+  // 11. Recalcula todos os totalizadores para garantir que contadores (0990, C990, D990, 9900, 9990, 9999) fiquem 100% perfeitos
   const finalLines = recalculateAllSpedTotalizers(resWs.updatedLines);
+
+  const totalMergedC190 = (resNormCst.mergedDuplicates || 0) + resConsolC190.mergedCount;
 
   const totalFixed =
     res0200.fixedCount +
     res0150.fixedCount +
     resD100Part.fixedCount +
-    resC190Opr.fixedCount +
     resClean0150.removedCount +
     resD100Mun.fixedCount +
     resNormCst.fixedCount +
+    totalMergedC190 +
+    resConsolD190.mergedCount +
+    resC190Opr.fixedCount +
     resWs.fixedCount;
 
   const partsSummary: string[] = [];
+  if (totalMergedC190 > 0) partsSummary.push(`${totalMergedC190} C190 duplicado(s) unificado(s)`);
+  if (resConsolD190.mergedCount > 0) partsSummary.push(`${resConsolD190.mergedCount} D190 duplicado(s) unificado(s)`);
   if (resC190Opr.fixedCount > 0) partsSummary.push(`${resC190Opr.fixedCount} nota(s) com C190 VL_OPR balanceado`);
   if (resD100Part.fixedCount > 0) partsSummary.push(`${resD100Part.fixedCount} vínculo(s) de transportadora D100 retificado(s)`);
   if (res0200.fixedCount > 0) partsSummary.push(`${res0200.fixedCount} TIPO_ITEM preenchido(s) no 0200`);
@@ -1059,6 +1294,8 @@ export function fixAllPvaReportErrors(lines: SpedLine[]): {
       fixedD100Part: resD100Part.fixedCount,
       removedUnused0150: resClean0150.removedCount,
       normalizedCst102: resNormCst.fixedCount,
+      consolidatedC190: totalMergedC190,
+      consolidatedD190: resConsolD190.mergedCount,
       fixedC190VlOpr: resC190Opr.fixedCount,
       fixedWhitespace: resWs.fixedCount,
       totalFixed,

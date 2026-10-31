@@ -314,6 +314,36 @@ export const PVA_RULES_CATALOG: Record<string, PvaRuleDefinition> = {
     category: 'DOCUMENTO_FISCAL'
   },
 
+  REGRA_C190_DUPLICIDADE_CHAVE: {
+    id: 'REGRA_C190_DUPLICIDADE_CHAVE',
+    record: 'C190',
+    field: 'CST_ICMS, CFOP, ALIQ_ICMS',
+    name: 'Duplicidade de ocorrência da chave CST_ICMS, CFOP, ALIQ_ICMS',
+    officialMessage:
+      'Duplicidade de ocorrência da chave CST_ICMS, CFOP, ALIQ_ICMS.',
+    guidance:
+      'No mesmo documento fiscal (C100), não podem existir dois ou mais registros analíticos C190 com a mesma combinação de CST_ICMS, CFOP e ALIQ_ICMS. Os registros devem ser unificados em um único C190, somando-se os valores das operações e impostos.',
+    solution:
+      'Consolide os registros C190 duplicados somando VL_OPR, bases de cálculo e impostos em uma única linha analítica por chave.',
+    formula: 'Chave única por C100: (CST_ICMS + CFOP + ALIQ_ICMS)',
+    category: 'DOCUMENTO_FISCAL'
+  },
+
+  REGRA_D190_DUPLICIDADE_CHAVE: {
+    id: 'REGRA_D190_DUPLICIDADE_CHAVE',
+    record: 'D190',
+    field: 'CST_ICMS, CFOP, ALIQ_ICMS',
+    name: 'Duplicidade de ocorrência da chave CST_ICMS, CFOP, ALIQ_ICMS no D190',
+    officialMessage:
+      'Duplicidade de ocorrência da chave CST_ICMS, CFOP, ALIQ_ICMS.',
+    guidance:
+      'No mesmo documento de transporte (D100), não podem existir dois ou mais registros analíticos D190 com a mesma combinação de CST_ICMS, CFOP e ALIQ_ICMS.',
+    solution:
+      'Consolide os registros D190 duplicados somando VL_OPR e impostos em uma única linha analítica por chave.',
+    formula: 'Chave única por D100: (CST_ICMS + CFOP + ALIQ_ICMS)',
+    category: 'DOCUMENTO_FISCAL'
+  },
+
   REGRA_ALIQ_ICMS_C170: {
     id: 'REGRA_ALIQ_ICMS_C170',
     record: 'C170',

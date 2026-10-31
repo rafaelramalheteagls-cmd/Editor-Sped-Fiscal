@@ -37,6 +37,8 @@ interface ValidationTabProps {
   onCleanUnused0150?: () => void;
   onNormalizeSimplesCst102?: () => void;
   onFixC190VlOprBalance?: () => void;
+  onConsolidateDuplicateC190?: () => void;
+  onConsolidateDuplicateD190?: () => void;
   onFixAllPvaReportErrors?: () => void;
   onNavigateToRecord: (reg: string, lineId?: number) => void;
 }
@@ -54,6 +56,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
   onCleanUnused0150,
   onNormalizeSimplesCst102,
   onFixC190VlOprBalance,
+  onConsolidateDuplicateC190,
+  onConsolidateDuplicateD190,
   onFixAllPvaReportErrors,
   onNavigateToRecord,
 }) => {
@@ -80,6 +84,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
 
   // Estatísticas dinâmicas de inconsistências corrigíveis nesta base carregada
   const fixableStats = useMemo(() => {
+    const c190Dup = issues.filter(i => i.fixAction === 'consolidate_c190_duplicates').length;
+    const d190Dup = issues.filter(i => i.fixAction === 'consolidate_d190_duplicates').length;
     const c190Opr = issues.filter(i => i.fixAction === 'fix_c190_vl_opr_balance').length;
     const d100Part = issues.filter(i => i.fixAction === 'fix_d100_participant_mismatch').length;
     const d100Mun = issues.filter(i => i.fixAction === 'fix_missing_d100_municipios').length;
@@ -91,6 +97,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
     const c100Struct = issues.filter(i => i.fixAction === 'fix_c100_structure').length;
     const unused0200 = issues.filter(i => i.fixAction === 'clean_0200').length;
     const total =
+      c190Dup +
+      d190Dup +
       c190Opr +
       d100Part +
       d100Mun +
@@ -102,6 +110,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
       c100Struct +
       unused0200;
     return {
+      c190Dup,
+      d190Dup,
       c190Opr,
       d100Part,
       d100Mun,
@@ -580,6 +590,8 @@ export const ValidationTab: React.FC<ValidationTabProps> = ({
                               else if (issue.fixAction === 'fix_d100_participant_mismatch' && onFixD100ParticipantMismatch) onFixD100ParticipantMismatch();
                               else if (issue.fixAction === 'clean_unused_0150' && onCleanUnused0150) onCleanUnused0150();
                               else if (issue.fixAction === 'normalize_simples_cst102' && onNormalizeSimplesCst102) onNormalizeSimplesCst102();
+                              else if (issue.fixAction === 'consolidate_c190_duplicates' && onConsolidateDuplicateC190) onConsolidateDuplicateC190();
+                              else if (issue.fixAction === 'consolidate_d190_duplicates' && onConsolidateDuplicateD190) onConsolidateDuplicateD190();
                               else if (issue.fixAction === 'fix_c190_vl_opr_balance' && onFixC190VlOprBalance) onFixC190VlOprBalance();
                               else if (issue.fixAction === 'fix_all_pva_errors' && onFixAllPvaReportErrors) onFixAllPvaReportErrors();
                             }}

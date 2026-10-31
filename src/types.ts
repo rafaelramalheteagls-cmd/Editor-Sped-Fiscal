@@ -90,6 +90,8 @@ export interface ValidationIssue {
     | 'fix_d100_participant_mismatch'
     | 'clean_unused_0150'
     | 'normalize_simples_cst102'
+    | 'consolidate_c190_duplicates'
+    | 'consolidate_d190_duplicates'
     | 'fix_c190_vl_opr_balance'
     | 'fix_all_pva_errors';
   relatedLines?: number[];

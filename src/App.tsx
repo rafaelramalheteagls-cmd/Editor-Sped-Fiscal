@@ -42,6 +42,8 @@ import {
   fixD100ParticipantMismatch,
   cleanUnused0150,
   normalizeSimplesCst102,
+  consolidateDuplicateC190,
+  consolidateDuplicateD190,
   fixC190VlOprBalance,
   fixAllPvaReportErrors
 } from './lib/spedFiscalSync';
@@ -421,6 +423,32 @@ export const App: React.FC = () => {
     }
   };
 
+  // PVA Fix: Consolidate duplicate C190 records (CST + CFOP + ALIQ)
+  const handleConsolidateDuplicateC190 = () => {
+    const { updatedLines, mergedCount } = consolidateDuplicateC190(lines);
+    if (mergedCount > 0) {
+      commitLines(
+        updatedLines,
+        `${mergedCount} registro(s) C190 duplicado(s) unificado(s) com soma de valores analíticos e totalizadores recalculados.`
+      );
+    } else {
+      showToast('Nenhum registro C190 duplicado encontrado no arquivo.', 'info');
+    }
+  };
+
+  // PVA Fix: Consolidate duplicate D190 records (CST + CFOP + ALIQ)
+  const handleConsolidateDuplicateD190 = () => {
+    const { updatedLines, mergedCount } = consolidateDuplicateD190(lines);
+    if (mergedCount > 0) {
+      commitLines(
+        updatedLines,
+        `${mergedCount} registro(s) D190 duplicado(s) unificado(s) com soma de valores analíticos.`
+      );
+    } else {
+      showToast('Nenhum registro D190 duplicado encontrado no arquivo.', 'info');
+    }
+  };
+
   // PVA Fix: Balance C190 VL_OPR with C100 VL_DOC
   const handleFixC190VlOprBalance = () => {
     const { updatedLines, fixedCount } = fixC190VlOprBalance(lines);
@@ -688,6 +716,8 @@ export const App: React.FC = () => {
               onFixD100ParticipantMismatch={handleFixD100ParticipantMismatch}
               onCleanUnused0150={handleCleanUnused0150}
               onNormalizeSimplesCst102={handleNormalizeSimplesCst102}
+              onConsolidateDuplicateC190={handleConsolidateDuplicateC190}
+              onConsolidateDuplicateD190={handleConsolidateDuplicateD190}
               onFixC190VlOprBalance={handleFixC190VlOprBalance}
               onFixAllPvaReportErrors={handleFixAllPvaReportErrors}
               onNavigateToRecord={handleNavigateToRecord}

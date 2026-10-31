@@ -5,7 +5,7 @@
  */
 
 import { SpedLine, ValidationIssue } from '../types';
-import { parseFloatSped, formatCurrencyBRL } from './spedParser';
+import { parseFloatSped, formatFloatSped, formatCurrencyBRL } from './spedParser';
 import { validateCnpj, validateCpf, validateChaveNfe, parseSpedDate } from './spedValidationRules';
 import { validateInscricaoEstadual } from './inscricaoEstadual';
 import { isValidCest } from './cestCatalog';
@@ -482,6 +482,37 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
 
     // Validações dos Registros Analíticos C190 vs Cabeçalho C100
     if (c190List.length > 0) {
+      // Regra Oficial PVA: Duplicidade de ocorrência da chave CST_ICMS, CFOP, ALIQ_ICMS no C190
+      const seenC190Keys = new Map<string, SpedLine>();
+      for (const c190 of c190List) {
+        const cst = (c190.fields[0] || '').trim();
+        const cfop = (c190.fields[1] || '').trim();
+        const aliqVal = parseFloatSped(c190.fields[2]);
+        const aliq = formatFloatSped(aliqVal);
+        const key = `${cst}|${cfop}|${aliq}`;
+
+        if (seenC190Keys.has(key)) {
+          const firstOccur = seenC190Keys.get(key)!;
+          const rule = getPvaRule('REGRA_C190_DUPLICIDADE_CHAVE');
+          issues.push({
+            id: `C190_DUP_${c190.lineNumber}`,
+            severity: 'ERRO',
+            code: 'REGRA_C190_DUPLICIDADE_CHAVE',
+            record: 'C190',
+            line: c190.lineNumber,
+            field: 'CST_ICMS, CFOP, ALIQ_ICMS',
+            message: `Duplicidade de ocorrência da chave CST_ICMS (${cst}), CFOP (${cfop}), ALIQ_ICMS (${aliq}) na NF #${docNum}.`,
+            pvaRuleId: 'REGRA_C190_DUPLICIDADE_CHAVE',
+            pvaGuidance: rule?.guidance || 'No mesmo documento fiscal (C100), não podem existir dois registros C190 com a mesma combinação de CST, CFOP e Alíquota de ICMS.',
+            canFix: true,
+            fixAction: 'consolidate_c190_duplicates',
+            relatedLines: [firstOccur.lineNumber, c190.lineNumber],
+          });
+        } else {
+          seenC190Keys.set(key, c190);
+        }
+      }
+
       const sumVlOpr = c190List.reduce((acc, l) => acc + parseFloatSped(l.fields[3]), 0);
       const sumBcIcms = c190List.reduce((acc, l) => acc + parseFloatSped(l.fields[4]), 0);
       const sumVlIcms = c190List.reduce((acc, l) => acc + parseFloatSped(l.fields[5]), 0);
@@ -740,6 +771,65 @@ export function validateSped(lines: SpedLine[]): ValidationIssue[] {
         });
       }
     }
+  }
+
+  // Validação de duplicidade de registros analíticos D190 por D100
+  let currentD100Line: SpedLine | null = null;
+  let currentD190s: SpedLine[] = [];
+
+  const validateTransportWithPvaRules = (d100: SpedLine, d190List: SpedLine[]) => {
+    const numDoc = d100.fields[7] || '';
+    const seenD190Keys = new Map<string, SpedLine>();
+    for (const d190 of d190List) {
+      const cst = (d190.fields[0] || '').trim();
+      const cfop = (d190.fields[1] || '').trim();
+      const aliqVal = parseFloatSped(d190.fields[2]);
+      const aliq = formatFloatSped(aliqVal);
+      const key = `${cst}|${cfop}|${aliq}`;
+
+      if (seenD190Keys.has(key)) {
+        const firstOccur = seenD190Keys.get(key)!;
+        const rule = getPvaRule('REGRA_D190_DUPLICIDADE_CHAVE');
+        issues.push({
+          id: `D190_DUP_${d190.lineNumber}`,
+          severity: 'ERRO',
+          code: 'REGRA_D190_DUPLICIDADE_CHAVE',
+          record: 'D190',
+          line: d190.lineNumber,
+          field: 'CST_ICMS, CFOP, ALIQ_ICMS',
+          message: `Duplicidade de ocorrência da chave CST_ICMS (${cst}), CFOP (${cfop}), ALIQ_ICMS (${aliq}) no CT-e #${numDoc}.`,
+          pvaRuleId: 'REGRA_D190_DUPLICIDADE_CHAVE',
+          pvaGuidance: rule?.guidance || 'No mesmo documento de transporte (D100), não podem existir dois registros D190 com a mesma combinação de CST, CFOP e Alíquota.',
+          canFix: true,
+          fixAction: 'consolidate_d190_duplicates',
+          relatedLines: [firstOccur.lineNumber, d190.lineNumber],
+        });
+      } else {
+        seenD190Keys.set(key, d190);
+      }
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.reg === 'D100') {
+      if (currentD100Line) {
+        validateTransportWithPvaRules(currentD100Line, currentD190s);
+      }
+      currentD100Line = line;
+      currentD190s = [];
+    } else if (line.reg === 'D190') {
+      currentD190s.push(line);
+    } else if (['E001', 'D990', '1001', 'C001'].includes(line.reg)) {
+      if (currentD100Line) {
+        validateTransportWithPvaRules(currentD100Line, currentD190s);
+        currentD100Line = null;
+        currentD190s = [];
+      }
+    }
+  }
+  if (currentD100Line) {
+    validateTransportWithPvaRules(currentD100Line, currentD190s);
   }
 
   // ========================================================================
